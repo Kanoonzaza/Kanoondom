@@ -1,0 +1,247 @@
+// Facilities (research: facilities.md).
+//
+// The real game has 100+ across four categories. V2 covers Environment and
+// Materials; Amenity and Indoor arrive with residents in V3.
+//
+// NOTE ON UPKEEP: there is none, and that is deliberate. The research turns up
+// no per-season running cost anywhere — facilities cost materials to build and
+// can be removed and rebuilt by paying again. What limits you is STOCK (you own
+// only so many of each), space, and materials. v1 had upkeep and it produced a
+// death spiral: a bankrupt kingdom switched its own farms off and starved with
+// no way back. Dropping it is both more faithful and strictly safer.
+//
+// Every facility declares:
+//   size          footprint in tiles, {w, h}
+//   cost          materials to place
+//   buildTicks    real seconds to raise
+//   stock         how many you own at the start
+//   produces      per-tick output, before biome and level scaling
+//   storage       capacity added, per resource
+//   aura          { radius, stats } granted to residents nearby
+//   likesBiome    biomes that boost output, and by how much
+//   requiresBiome hard restriction, if any
+
+export const FACILITIES = {
+  // --- Environment ---------------------------------------------------------
+  town_hall: {
+    id: 'town_hall', name: 'Town Hall', icon: '🏛️', category: 'environment',
+    size: { w: 2, h: 2 },
+    cost: { wood: 200, ore: 150 },
+    buildTicks: 240,
+    stock: 0, // earned, never given
+    aura: { radius: 6, stats: { heart: 6, vigor: 4 } },
+    unique: false,
+    isTownHall: true,
+    blurb: 'Claims land around it. Place them far apart — overlapping reach is wasted.',
+  },
+  path: {
+    id: 'path', name: 'Path', icon: '🛤️', category: 'environment',
+    size: { w: 1, h: 1 },
+    cost: { grass: 4 },
+    buildTicks: 4,
+    stock: 40,
+    aura: { radius: 1, stats: { move: 6 } },
+    blurb: 'Residents move quicker along it. Cheap, and it adds up.',
+  },
+  torch: {
+    id: 'torch', name: 'Torch', icon: '🔥', category: 'environment',
+    size: { w: 1, h: 1 },
+    cost: { wood: 25, ore: 5 },
+    buildTicks: 20,
+    stock: 6,
+    aura: { radius: 4, stats: { def: 3, luck: 2 } },
+    /** Keeps the dark back a little; matters from V5. */
+    wardsMonsters: 0.25,
+    blurb: 'Light against the night. Monsters keep their distance.',
+  },
+  watchtower: {
+    id: 'watchtower', name: 'Watchtower', icon: '🗼', category: 'environment',
+    size: { w: 1, h: 1 },
+    cost: { wood: 60, ore: 40 },
+    buildTicks: 60,
+    stock: 2,
+    aura: { radius: 6, stats: { def: 8, dex: 4 } },
+    wardsMonsters: 0.6,
+    blurb: 'Sees trouble coming, and blunts it when it arrives.',
+  },
+  wall: {
+    id: 'wall', name: 'Wall', icon: '🧱', category: 'environment',
+    size: { w: 1, h: 1 },
+    cost: { ore: 12 },
+    buildTicks: 12,
+    stock: 24,
+    aura: { radius: 1, stats: { def: 5 } },
+    blocksMovement: true,
+    blurb: 'Stone between your people and whatever is out there.',
+  },
+  well: {
+    id: 'well', name: 'Well', icon: '💧', category: 'environment',
+    size: { w: 1, h: 1 },
+    cost: { ore: 20, wood: 10 },
+    buildTicks: 25,
+    stock: 4,
+    aura: { radius: 3, stats: { vigor: 8, hp: 4 } },
+    blurb: 'Everything near clean water does a little better.',
+  },
+
+  // --- Materials: production ----------------------------------------------
+  field: {
+    id: 'field', name: 'Field', icon: '🌾', category: 'materials',
+    size: { w: 2, h: 2 },
+    cost: { wood: 30 },
+    buildTicks: 40,
+    stock: 3,
+    produces: { grass: 0.10 },
+    likesBiome: { grass: 0.3, soil: 0.15, swamp: 0.1 },
+    aura: { radius: 2, stats: { gather: 3 } },
+    blurb: 'Thatch and feed. Wants open grass under it.',
+  },
+  plantation: {
+    id: 'plantation', name: 'Plantation', icon: '🌳', category: 'materials',
+    size: { w: 2, h: 2 },
+    cost: { wood: 20, grass: 30 },
+    buildTicks: 45,
+    stock: 3,
+    produces: { wood: 0.09 },
+    likesBiome: { swamp: 0.3, grass: 0.15 },
+    aura: { radius: 2, stats: { vigor: 3 } },
+    blurb: 'Timber, grown rather than felled.',
+  },
+  ranch: {
+    id: 'ranch', name: 'Ranch', icon: '🐄', category: 'materials',
+    size: { w: 2, h: 2 },
+    cost: { wood: 45, grass: 40 },
+    buildTicks: 55,
+    stock: 2,
+    produces: { food: 0.11 },
+    likesBiome: { grass: 0.3, soil: 0.2 },
+    aura: { radius: 2, stats: { hp: 4, heart: 2 } },
+    blurb: 'Beasts and their keeping. The steadiest food there is.',
+  },
+  ore_mine: {
+    id: 'ore_mine', name: 'Ore Mine', icon: '⛏️', category: 'materials',
+    size: { w: 2, h: 2 },
+    cost: { wood: 60, ore: 20 },
+    buildTicks: 70,
+    stock: 2,
+    produces: { ore: 0.07 },
+    likesBiome: { rock: 0.4, desert: 0.25 },
+    aura: { radius: 2, stats: { atk: 3, dex: 2 } },
+    blurb: 'Cut into stone for what stone holds.',
+  },
+  mystic_mine: {
+    id: 'mystic_mine', name: 'Mystic Mine', icon: '💠', category: 'materials',
+    size: { w: 2, h: 2 },
+    cost: { wood: 80, ore: 90 },
+    buildTicks: 110,
+    stock: 1,
+    produces: { mysticOre: 0.03 },
+    likesBiome: { snow: 0.5, lava: 0.6, rock: 0.15 },
+    aura: { radius: 2, stats: { int: 5, mp: 4 } },
+    blurb: 'Only the cold and the burning places give it up.',
+  },
+  market_stall: {
+    id: 'market_stall', name: 'Market Stall', icon: '🏪', category: 'materials',
+    size: { w: 1, h: 1 },
+    cost: { wood: 40, grass: 20 },
+    buildTicks: 45,
+    stock: 2,
+    produces: { copper: 0.05 },
+    aura: { radius: 3, stats: { heart: 3, luck: 2 } },
+    blurb: 'A little trade of its own, until your residents open real shops.',
+  },
+
+  // --- Materials: storage --------------------------------------------------
+  // The most important buildings in the game for anyone who plays in bursts:
+  // storage is the only thing capping what accumulates while you are away.
+  granary: {
+    id: 'granary', name: 'Granary', icon: '🛖', category: 'materials',
+    size: { w: 2, h: 2 },
+    cost: { wood: 70, ore: 20 },
+    buildTicks: 60,
+    stock: 1,
+    storage: { food: 3500, grass: 2000 },
+    aura: { radius: 2, stats: { vigor: 2 } },
+    blurb: 'Holds food and feed, so more of it survives your time away.',
+  },
+  lumber_yard: {
+    id: 'lumber_yard', name: 'Lumber Yard', icon: '🪵', category: 'materials',
+    size: { w: 2, h: 2 },
+    cost: { wood: 50, ore: 30 },
+    buildTicks: 60,
+    stock: 1,
+    storage: { wood: 3500 },
+    aura: { radius: 2, stats: { dex: 2 } },
+    blurb: 'Stacked timber against a long absence.',
+  },
+  ore_store: {
+    id: 'ore_store', name: 'Ore Store', icon: '🏚️', category: 'materials',
+    size: { w: 2, h: 2 },
+    cost: { wood: 60, ore: 50 },
+    buildTicks: 70,
+    stock: 1,
+    storage: { ore: 3000, mysticOre: 1200 },
+    aura: { radius: 2, stats: { def: 2 } },
+    blurb: 'Stone and rare stone, kept dry.',
+  },
+  treasury: {
+    id: 'treasury', name: 'Treasury', icon: '🏦', category: 'materials',
+    size: { w: 2, h: 2 },
+    cost: { wood: 80, ore: 80 },
+    buildTicks: 90,
+    stock: 1,
+    storage: { copper: 6000, bronze: 4000, silver: 1500 },
+    aura: { radius: 2, stats: { luck: 3 } },
+    blurb: 'Deep coffers. Coin stops overflowing while you sleep.',
+  },
+};
+
+export const FACILITY_IDS = Object.keys(FACILITIES);
+export const FACILITY_CATEGORIES = ['environment', 'materials'];
+
+export const CATEGORY_LABELS = {
+  environment: 'Environment',
+  materials: 'Materials — production and storage',
+};
+
+// ---------------------------------------------------------------------------
+// Levels
+// ---------------------------------------------------------------------------
+//
+// The real game levels facilities with treasure and items. We have no item
+// layer yet, so upgrades cost materials — same decision shape, no new system.
+
+export const MAX_FACILITY_LEVEL = 5;
+
+/** Output, storage and aura all scale by this. */
+export const LEVEL_EFFECT = [1, 1.6, 2.3, 3.1, 4.0];
+
+/** Cost multiplier to go FROM level n TO n+1, indexed by current level. */
+export const LEVEL_UPGRADE_COST = [1.3, 2.6, 4.2, 6.2];
+export const LEVEL_UPGRADE_TIME = [1.2, 1.6, 2.0, 2.5];
+
+export function effectScale(level = 1) {
+  return LEVEL_EFFECT[Math.max(0, Math.min(LEVEL_EFFECT.length - 1, level - 1))];
+}
+
+export function facilityDef(id) {
+  const def = FACILITIES[id];
+  if (!def) throw new Error(`Unknown facility: ${id}`);
+  return def;
+}
+
+export function upgradeCostFor(facilityId, level) {
+  if (level >= MAX_FACILITY_LEVEL) return null;
+  const def = facilityDef(facilityId);
+  const multiplier = LEVEL_UPGRADE_COST[level - 1];
+  const cost = {};
+  for (const [resource, amount] of Object.entries(def.cost)) {
+    cost[resource] = Math.round(amount * multiplier);
+  }
+  return cost;
+}
+
+export function upgradeTicksFor(facilityId, level) {
+  if (level >= MAX_FACILITY_LEVEL) return null;
+  return Math.round(facilityDef(facilityId).buildTicks * LEVEL_UPGRADE_TIME[level - 1]);
+}

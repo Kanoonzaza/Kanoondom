@@ -13,9 +13,14 @@ import {
   clearTerritoryFog, territoryTiles, zoneLabel, zoneOf,
 } from './sim/world.js';
 import { el, mount, short } from './ui/dom.js';
-import { createMapView, tileSheet, centreOn } from './ui/map.js';
+import { createMapView, tileSheet, buildSheet, centreOn, mapMode } from './ui/map.js';
 import { openSheet, closeSheet, toast } from './ui/panels.js';
 import { TICKS_PER_SEASON, SPEEDS, ZONE_UNLOCKS } from './content/config.js';
+import { catchUp } from './sim/offline.js';
+import { place, remove, upgrade, palette, allFacilities } from './sim/facilities.js';
+import { productionRates, storageCapacity, fullStores } from './sim/economy.js';
+import { RESOURCES, RESOURCE_IDS } from './content/resources.js';
+import { facilityDef } from './content/facilities.js';
 
 let state = null;
 let speed = 1;
@@ -51,6 +56,32 @@ function boot() {
   }
 
   speed = state.settings.defaultSpeed ?? 1;
+
+  // Bring the kingdom up to the present before anything is drawn.
+  let welcome = null;
+  try {
+    welcome = catchUp(state);
+  } catch (err) {
+    console.error('Offline catch-up failed:', err);
+  }
+  if (welcome) {
+    const gained = RESOURCE_IDS
+      .filter((id) => (welcome.gained[id] ?? 0) >= 1)
+      .map((id) => `${RESOURCES[id].icon} +${Math.round(welcome.gained[id])}`)
+      .join('  ');
+    const spilled = RESOURCE_IDS.filter((id) => (welcome.wasted[id] ?? 0) > 1);
+    toast({
+      title: 'While you were away',
+      rows: [
+        ['', gained || 'the realm ticked over quietly'],
+        ...(spilled.length > 0
+          ? [['⚠ Overflowed', spilled.map((id) => RESOURCES[id].name).join(', '), 'neg']]
+          : []),
+      ],
+      kind: spilled.length > 0 ? 'warn' : 'good',
+      ms: 12000,
+    });
+  }
 
   buildTabs();
   markDirty();
@@ -91,6 +122,25 @@ function loop(now) {
 }
 
 function handleReport(report) {
+  for (const done of report.completed) {
+    toast({
+      title: 'Finished building',
+      rows: [['', facilityDef(done.facilityId).name, 'pos']],
+      kind: 'good',
+      ms: 4000,
+    });
+    markDirty();
+  }
+  for (const up of report.upgraded) {
+    toast({
+      title: 'Upgrade finished',
+      rows: [['', `${facilityDef(up.facilityId).name} is now level ${up.level}`, 'pos']],
+      kind: 'good',
+      ms: 5000,
+    });
+    markDirty();
+  }
+
   if (report.fullMoons > 0) {
     toast({
       title: '🌕 A full moon rises',
@@ -137,25 +187,30 @@ function paint(now) {
 
 // --- HUD -------------------------------------------------------------------
 
+/** The five the player watches most. The rest live on the Realm screen. */
+const HUD_RESOURCES = ['copper', 'wood', 'grass', 'food', 'ore'];
+
 function renderHud() {
-  const peace = peaceLevel(state);
-  const cells = [
-    { icon: '🕊️', value: `${peace.toFixed(0)}%`, label: 'peace', cls: 'gold' },
-    { icon: '🏰', value: String(state.townHalls.length), label: 'halls', cls: 'materials' },
-    { icon: '👑', value: monarchRank(state), label: 'rank', cls: 'renown' },
-    { icon: '🗺️', value: short(state.stats.tilesCleared), label: 'explored', cls: 'food' },
-    { icon: '🌕', value: isFullMoon(state) ? 'full' : `${dayNumber(state) % 10}`, label: 'moon', cls: 'people' },
-  ];
+  const caps = storageCapacity(state);
+  const rates = productionRates(state);
 
   mount(
     document.getElementById('hud-resources'),
-    ...cells.map((cell) =>
-      el(`div.res.${cell.cls}`, {}, [
-        el('div.res-icon', { text: cell.icon }),
-        el('div.res-value', { text: cell.value }),
-        el('div.res-cap', { text: cell.label }),
-      ])
-    )
+    ...HUD_RESOURCES.map((id) => {
+      const value = state.resources[id];
+      const full = value >= caps[id] - 0.5;
+      const perSeason = rates[id] * TICKS_PER_SEASON;
+      return el('div.res', { class: full ? 'full' : '' }, [
+        el('div.res-icon', { text: RESOURCES[id].icon }),
+        el('div.res-value', { text: short(value) }),
+        el('div.res-cap', { text: full ? 'FULL' : `+${perSeason.toFixed(0)}/s` }),
+        el('div.res-bar', {}, [
+          el('div', {
+            style: { width: `${Math.min(100, (value / caps[id]) * 100)}%`, background: 'var(--gold)' },
+          }),
+        ]),
+      ]);
+    })
   );
 
   refreshClock();
@@ -213,11 +268,27 @@ function renderWorld() {
   const gate = nextGate(state);
 
   mapView = createMapView(state, {
-    onTapTile: (x, y) => openSheet(tileSheet(state, x, y, closeSheet)),
+    onTapTile: (x, y) => openSheet(tileSheet(state, x, y, closeSheet, onTileAction)),
+    onPlaceAt: placeHere,
   });
 
   const wrapper = el('div', {}, [
-    el('h2.screen-title.serif', { text: 'The World' }),
+    el('div', { style: { display: 'flex', alignItems: 'center', gap: '8px' } }, [
+      el('div', { style: { flex: '1' } }, [
+        el('h2.screen-title.serif', { text: 'The World' }),
+      ]),
+      mapMode.building
+        ? el('button.btn.btn-danger', {
+            text: 'Cancel',
+            style: { flex: 'none', padding: '0 14px', minHeight: '38px' },
+            on: { click: () => { mapMode.building = null; mapMode.hover = null; markDirty(); } },
+          })
+        : el('button.btn.btn-primary', {
+            text: '🔨 Build',
+            style: { flex: 'none', padding: '0 14px', minHeight: '38px' },
+            on: { click: openBuildSheet },
+          }),
+    ]),
     el('p.screen-sub', {
       text: `${short(state.stats.tilesCleared)} tiles explored · ring ${unlockedRing(state)} open`,
     }),
@@ -243,6 +314,52 @@ function renderWorld() {
   ]);
 
   return wrapper;
+}
+
+function openBuildSheet() {
+  openSheet(buildSheet(state, palette(state), {
+    onPick: (facilityId) => {
+      mapMode.building = facilityId;
+      mapMode.hover = null;
+      closeSheet();
+      toast({
+        title: `Placing ${facilityDef(facilityId).name}`,
+        rows: [['', 'Tap the map. Green fits, red does not.']],
+        ms: 4000,
+      });
+      markDirty();
+    },
+    onClose: closeSheet,
+  }));
+}
+
+function placeHere(x, y) {
+  const facilityId = mapMode.building;
+  const result = place(state, x, y, facilityId);
+  if (!result.ok) {
+    toast({ title: 'Cannot build there', rows: [['', result.reason]], kind: 'bad', ms: 3000 });
+    return;
+  }
+  state.stats.facilitiesBuilt += 1;
+  // Stay in build mode while stock lasts, so a row of paths is not ten trips
+  // through the menu.
+  if ((state.stock[facilityId] ?? 0) <= 0) {
+    mapMode.building = null;
+    mapMode.hover = null;
+  }
+  saveToStorage(state);
+  markDirty();
+}
+
+function onTileAction(action, x, y) {
+  const result = action === 'upgrade' ? upgrade(state, x, y) : remove(state, x, y);
+  if (!result.ok) {
+    toast({ title: 'Cannot do that', rows: [['', result.reason]], kind: 'bad', ms: 3000 });
+    return;
+  }
+  closeSheet();
+  saveToStorage(state);
+  markDirty();
 }
 
 function biomeColour(id) {

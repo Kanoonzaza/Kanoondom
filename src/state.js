@@ -8,8 +8,10 @@
 
 import { deriveSeed, SEED_SALT } from './sim/rng.js';
 import { worldCentre } from './sim/world.js';
+import { STARTING_RESOURCES, RESOURCE_IDS } from './content/resources.js';
+import { FACILITIES } from './content/facilities.js';
 import {
-  TICKS_PER_SEASON, SEASONS_PER_YEAR, SEASON_NAMES, DAY,
+  TICKS_PER_SEASON, SEASONS_PER_YEAR, SEASON_NAMES, DAY, WORLD_TILES_X,
 } from './content/config.js';
 
 export const SCHEMA_VERSION = 1;
@@ -19,7 +21,7 @@ export function newGame(seed = Math.floor(Math.random() * 0xffffffff), options =
   const now = options.now ?? Date.now();
   const centre = worldCentre();
 
-  return {
+  const state = {
     schemaVersion: SCHEMA_VERSION,
     seed: seed >>> 0,
     rngState: deriveSeed(seed, SEED_SALT.COMBAT),
@@ -50,18 +52,33 @@ export function newGame(seed = Math.floor(Math.random() * 0xffffffff), options =
       cleared: {},
       wasteland: {},
       nests: {},
+      /** Facility records, keyed by their ORIGIN (top-left) tile. */
       facilities: {},
+      /**
+       * Every tile a facility covers, mapped back to that facility's origin.
+       * Derived from `facilities`, but maintained rather than recomputed so
+       * "what is on this tile?" stays O(1) for the renderer and for placement
+       * checks. `reindexOccupancy` can rebuild it if it ever drifts.
+       */
+      occupied: {},
     },
 
     /** Territory radiates from these (research: world-and-map.md). */
     townHalls: [{ id: 1, x: centre.x, y: centre.y, level: 1 }],
 
-    /** Filled in by V2. Three coins and five materials, separately stored. */
-    resources: {
-      bronze: 0, copper: 0, silver: 0,
-      wood: 0, grass: 0, food: 0, ore: 0, mysticOre: 0,
-      energy: 0,
-    },
+    /** Three coins, five materials, and energy — each stored separately. */
+    resources: { ...STARTING_RESOURCES },
+
+    /**
+     * Facilities in hand, waiting to be placed.
+     *
+     * This is what limits building in the real game, in place of any running
+     * cost: you own only so many of each, and more come from research, surveys
+     * and map rewards. Taking one down returns it to your hand.
+     */
+    stock: Object.fromEntries(
+      Object.values(FACILITIES).map((def) => [def.id, def.stock ?? 0])
+    ),
 
     residents: [],
     parties: [],
@@ -75,11 +92,36 @@ export function newGame(seed = Math.floor(Math.random() * 0xffffffff), options =
       nestsCleared: 0,
       tilesCleared: 0,
       raidsSuffered: 0,
+      facilitiesBuilt: 0,
+      /** Cumulative overflow per resource — the nudge to build more storage. */
       wasted: {},
     },
 
     pendingReport: null,
   };
+
+  // The founding Town Hall is a real facility standing on real tiles, not just
+  // an entry in `townHalls`. Written inline because sim/facilities.js imports
+  // this module for `takeId`, so importing it back would be a cycle.
+  const hallDef = FACILITIES.town_hall;
+  const origin = centre.y * WORLD_TILES_X + centre.x;
+  state.world.facilities[origin] = {
+    id: 'town_hall',
+    level: 1,
+    buildTicksRemaining: 0,
+    upgradeTicksRemaining: 0,
+    upgrading: false,
+    built: true,
+    damaged: false,
+  };
+  for (let dy = 0; dy < hallDef.size.h; dy++) {
+    for (let dx = 0; dx < hallDef.size.w; dx++) {
+      state.world.occupied[(centre.y + dy) * WORLD_TILES_X + (centre.x + dx)] = origin;
+    }
+  }
+  state.townHalls[0].origin = origin;
+
+  return state;
 }
 
 export function takeId(state) {

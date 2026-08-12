@@ -10,7 +10,13 @@ import {
   hallRadius, zoneOf, zoneLabel, isZoneUnlocked, worldCentre,
 } from '../sim/world.js';
 import { BIOMES } from '../content/biomes.js';
+import { FACILITIES, facilityDef } from '../content/facilities.js';
+import { facilityAt, canPlace, footprintTiles } from '../sim/facilities.js';
+import { auraSources } from '../sim/aura.js';
 import { WORLD, WORLD_TILES_X, WORLD_TILES_Y } from '../content/config.js';
+
+/** What the player is currently doing on the map. */
+export const mapMode = { building: null, hover: null };
 
 /** Camera, kept across re-renders so the view does not jump. */
 export const camera = {
@@ -113,6 +119,66 @@ export function drawMap(canvas, state) {
     }
   }
 
+  // --- facilities ---
+  for (const [origin, facility] of Object.entries(state.world.facilities)) {
+    const def = facilityDef(facility.id);
+    const ox = Number(origin) % WORLD_TILES_X;
+    const oy = Math.floor(Number(origin) / WORLD_TILES_X);
+    const w = def.size.w * size;
+    const h = def.size.h * size;
+    const sx = screenX(ox);
+    const sy = screenY(oy);
+
+    const finished = facility.built;
+    ctx.fillStyle = finished ? 'rgba(28,34,50,0.92)' : 'rgba(28,34,50,0.55)';
+    ctx.fillRect(sx, sy, w, h);
+    ctx.strokeStyle = finished ? '#d9a441' : 'rgba(217,164,65,0.5)';
+    ctx.lineWidth = 1.5;
+    ctx.strokeRect(sx + 0.5, sy + 0.5, w - 1, h - 1);
+
+    if (size >= 5) {
+      ctx.font = `${Math.min(w, h) * 0.62}px system-ui`;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(def.icon, sx + w / 2, sy + h / 2);
+      ctx.textAlign = 'left';
+    }
+    if (!finished) {
+      const progress = 1 - facility.buildTicksRemaining / def.buildTicks;
+      ctx.fillStyle = '#d9a441';
+      ctx.fillRect(sx, sy + h - 2, w * progress, 2);
+    }
+    if (facility.level > 1 && size >= 7) {
+      ctx.fillStyle = '#d9a441';
+      ctx.font = '600 9px system-ui';
+      ctx.fillText(`L${facility.level}`, sx + 2, sy + 9);
+    }
+  }
+
+  // --- build ghost: show whether it fits BEFORE committing ---
+  if (mapMode.building && mapMode.hover) {
+    const def = facilityDef(mapMode.building);
+    const { x: hx, y: hy } = mapMode.hover;
+    const allowed = canPlace(state, hx, hy, mapMode.building).ok;
+    ctx.fillStyle = allowed ? 'rgba(124,196,127,0.45)' : 'rgba(224,104,95,0.45)';
+    ctx.fillRect(screenX(hx), screenY(hy), def.size.w * size, def.size.h * size);
+    ctx.strokeStyle = allowed ? '#7cc47f' : '#e0685f';
+    ctx.lineWidth = 2;
+    ctx.strokeRect(screenX(hx), screenY(hy), def.size.w * size, def.size.h * size);
+
+    // Its reach, so the player can see what the aura would cover.
+    if (def.aura) {
+      ctx.strokeStyle = 'rgba(217,164,65,0.4)';
+      ctx.setLineDash([4, 4]);
+      ctx.strokeRect(
+        screenX(hx - def.aura.radius), screenY(hy - def.aura.radius),
+        (def.size.w + def.aura.radius * 2) * size,
+        (def.size.h + def.aura.radius * 2) * size
+      );
+      ctx.setLineDash([]);
+    }
+  }
+
   // --- zone grid ---
   if (size >= 4) {
     ctx.strokeStyle = 'rgba(255,255,255,0.07)';
@@ -141,11 +207,8 @@ export function drawMap(canvas, state) {
     ctx.stroke();
     ctx.fillStyle = 'rgba(217,164,65,0.07)';
     ctx.fill();
-
-    // The hall itself.
-    const hs = Math.max(size, 9);
-    ctx.fillStyle = '#d9a441';
-    ctx.fillRect(screenX(hall.x) - (hs - size) / 2, screenY(hall.y) - (hs - size) / 2, hs, hs);
+    // The hall itself is drawn by the facility pass above — it is a real
+    // facility standing on real tiles, not a marker.
   }
 
   // --- zone labels, once tiles are big enough to read them ---
@@ -210,8 +273,22 @@ export function createMapView(state, handlers) {
   let dragged = 0;
   let pinchStart = null;
 
+  canvas.addEventListener('pointermove', (event) => {
+    // Desktop hover: show the ghost without needing a press.
+    if (!mapMode.building || pointers.size > 0) return;
+    const tile = tileAtPointer(canvas, event.clientX, event.clientY);
+    if (tile && (mapMode.hover?.x !== tile.x || mapMode.hover?.y !== tile.y)) {
+      mapMode.hover = tile;
+      redraw();
+    }
+  });
+
   canvas.addEventListener('pointerdown', (event) => {
     canvas.setPointerCapture(event.pointerId);
+    if (mapMode.building) {
+      const tile = tileAtPointer(canvas, event.clientX, event.clientY);
+      if (tile) mapMode.hover = tile;
+    }
     pointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
     dragged = 0;
     canvas.classList.add('dragging');
@@ -232,6 +309,14 @@ export function createMapView(state, handlers) {
     }
 
     pointers.set(event.pointerId, next);
+
+    if (mapMode.building && pointers.size === 1) {
+      const tile = tileAtPointer(canvas, next.x, next.y);
+      if (tile && (mapMode.hover?.x !== tile.x || mapMode.hover?.y !== tile.y)) {
+        mapMode.hover = tile;
+        redraw();
+      }
+    }
 
     if (pointers.size === 2) {
       const [a, b] = [...pointers.values()];
@@ -258,7 +343,9 @@ export function createMapView(state, handlers) {
     // A tap, not a drag.
     if (wasSingle && dragged < 6) {
       const tile = tileAtPointer(canvas, event.clientX, event.clientY);
-      if (tile) handlers.onTapTile?.(tile.x, tile.y);
+      if (!tile) return;
+      if (mapMode.building) handlers.onPlaceAt?.(tile.x, tile.y);
+      else handlers.onTapTile?.(tile.x, tile.y);
     }
   }
   canvas.addEventListener('pointerup', endPointer);
@@ -274,7 +361,7 @@ export function createMapView(state, handlers) {
 }
 
 /** Sheet describing one tile. */
-export function tileSheet(state, x, y, onClose) {
+export function tileSheet(state, x, y, onClose, onAction) {
   const info = tileInfo(state, x, y);
   const biome = BIOMES[info.biome];
   const zone = zoneLabel(info.zone.zx, info.zone.zy);
@@ -290,9 +377,37 @@ export function tileSheet(state, x, y, onClose) {
 
   const yields = info.cleared ? Object.entries(biome.yields ?? {}) : [];
 
+  const standing = facilityAt(state, x, y);
+  const reaching = auraSources(state, x, y);
+
   return el('div', {}, [
-    el('h3.sheet-title', { text: info.cleared ? `${biome.icon} ${biome.name}` : 'Unexplored land' }),
+    el('h3.sheet-title', {
+      text: standing
+        ? `${facilityDef(standing.id).icon} ${facilityDef(standing.id).name}`
+        : info.cleared ? `${biome.icon} ${biome.name}` : 'Unexplored land',
+    }),
     el('p.sheet-sub', { text: `${zone} · tile ${x}, ${y}` }),
+
+    standing
+      ? el('div.card', {}, [
+          el('div.card-title', { text: 'Standing here' }),
+          el('div.kv', {}, [
+            el('span', { text: 'Level' }),
+            el('b', { class: standing.level > 1 ? 'pos' : '', text: String(standing.level) }),
+          ]),
+          !standing.built
+            ? el('div.kv', {}, [
+                el('span', { text: 'Finishes in' }),
+                el('b', { text: `${Math.ceil(standing.buildTicksRemaining)}s` }),
+              ])
+            : null,
+          el('div.pi-note', { text: facilityDef(standing.id).blurb }),
+          el('div.btn-row', {}, [
+            el('button.btn', { text: 'Upgrade', on: { click: () => onAction?.('upgrade', x, y) } }),
+            el('button.btn.btn-danger', { text: 'Remove', on: { click: () => onAction?.('remove', x, y) } }),
+          ]),
+        ])
+      : null,
 
     el('div.card', {}, rows.map(([label, value]) =>
       el('div.kv', {}, [el('span', { text: label }), el('b', { text: value })])
@@ -311,8 +426,85 @@ export function tileSheet(state, x, y, onClose) {
         ])
       : null,
 
+    reaching.length > 0
+      ? el('div.card', {}, [
+          el('div.card-title', { text: 'What reaches this spot' }),
+          ...reaching.map((source) =>
+            el('div.kv', {}, [
+              el('span', { text: `${source.icon} ${source.name}` }),
+              el('b', {
+                class: 'pos',
+                text: Object.entries(source.stats)
+                  .map(([stat, value]) => `${stat} +${Math.round(value)}`)
+                  .join(', '),
+              }),
+            ])
+          ),
+        ])
+      : null,
+
     el('div.btn-row', {}, [
       el('button.btn.btn-primary', { text: 'Close', on: { click: onClose } }),
+    ]),
+  ]);
+}
+
+/** The build palette: what you own, what it costs, what it needs underfoot. */
+export function buildSheet(state, entries, handlers) {
+  const body = el('div.palette');
+
+  for (const category of ['environment', 'materials']) {
+    const inCategory = entries.filter((entry) => entry.def.category === category);
+    if (inCategory.length === 0) continue;
+
+    body.append(el('div.cat-head', {
+      text: category === 'materials' ? 'Materials — production and storage' : 'Environment',
+    }));
+
+    for (const entry of inCategory) {
+      const { def, stock, affordable } = entry;
+      const notes = [];
+      if (def.produces) {
+        notes.push(Object.entries(def.produces)
+          .map(([id, rate]) => `${(rate * 300).toFixed(1)} ${id}/season`).join(', '));
+      }
+      if (def.storage) {
+        notes.push(Object.entries(def.storage)
+          .map(([id, amount]) => `+${amount.toLocaleString()} ${id}`).join(', '));
+      }
+      if (def.aura) {
+        notes.push(`${Object.entries(def.aura.stats)
+          .map(([stat, value]) => `${stat} +${value}`).join(' ')} within ${def.aura.radius}`);
+      }
+
+      body.append(el('button.palette-item', {
+        disabled: stock <= 0 || !affordable,
+        on: { click: () => handlers.onPick(def.id) },
+      }, [
+        el('div.pi-icon', { text: def.icon }),
+        el('div.pi-body', {}, [
+          el('div.pi-name', { text: `${def.name}  ·  ${def.size.w}×${def.size.h}` }),
+          el('div.pi-note', { text: notes.join(' · ') || def.blurb }),
+          el('div.pi-note', {
+            class: stock > 0 ? 'pi-gain' : 'pi-lock',
+            text: stock > 0 ? `${stock} in hand` : 'none left — research more',
+          }),
+        ]),
+        el('div.pi-cost', {},
+          Object.entries(def.cost).map(([id, amount]) =>
+            el('div', { class: affordable ? '' : 'pi-lock', text: `${amount} ${id}` })
+          )
+        ),
+      ]));
+    }
+  }
+
+  return el('div', {}, [
+    el('h3.sheet-title', { text: 'Build' }),
+    el('p.sheet-sub', { text: 'Pick something, then tap the map to place it.' }),
+    body,
+    el('div.btn-row', {}, [
+      el('button.btn', { text: 'Cancel', on: { click: handlers.onClose } }),
     ]),
   ]);
 }

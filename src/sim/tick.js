@@ -16,6 +16,9 @@
 // the offline promise testable rather than hopeful.
 
 import { TICKS_PER_SEASON, DAY } from '../content/config.js';
+import {
+  productionRates, storageCapacity, applyProduction, settleStorage,
+} from './economy.js';
 
 /** A fresh record of everything that happened during an advance. */
 export function createReport() {
@@ -64,6 +67,14 @@ export function ticksToNextEvent(state) {
  * event, and events only fire at segment boundaries.
  */
 function applySegment(state, ticks, report, offline) {
+  // Rates are constant for the whole segment by construction, so the entire
+  // span resolves in one piece of arithmetic rather than tick by tick.
+  applyProduction(
+    state, ticks,
+    productionRates(state), storageCapacity(state),
+    report, state.time.totalTicks
+  );
+
   for (const key of Object.keys(state.world.facilities)) {
     const facility = state.world.facilities[key];
     if (facility.buildTicksRemaining > 0) facility.buildTicksRemaining -= ticks;
@@ -128,6 +139,9 @@ export function advanceTicks(state, ticks, options = {}) {
     }
 
     if (state.time.totalTicks % TICKS_PER_SEASON === 0) {
+      // Capacity can fall between seasons; make sure nothing is stranded above
+      // a cap it can no longer drain to.
+      settleStorage(state, report);
       report.seasonsElapsed += 1;
       report.seasons.push({ tick: state.time.totalTicks });
     }
