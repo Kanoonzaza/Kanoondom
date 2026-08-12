@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1">
+<meta name="theme-color" content="#12151f">
+<title>Kingdom Sim</title>
+<link rel="stylesheet" href="styles.css">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🏰</text></svg>">
+</head>
+<body>
+
+<div id="app">
+
+  <header id="hud" class="hud">
+    <div class="hud-resources" id="hud-resources"></div>
+    <div class="hud-clock">
+      <div class="clock-text">
+        <span id="clock-season">Spring</span>
+        <span id="clock-year" class="muted">Year 1</span>
+        <span id="clock-period" class="muted"></span>
+      </div>
+      <div class="season-progress"><div id="season-bar"></div></div>
+      <div class="speeds" id="speeds"></div>
+    </div>
+  </header>
+
+  <main id="screen"></main>
+
+  <nav id="tabs" class="tabs"></nav>
+
+</div>
+
+<div id="overlay" class="overlay hidden" aria-hidden="true"></div>
+<div id="toasts" class="toasts"></div>
+
+<script type="module" src="src/main.js"></script>
+
+<noscript>
+  <p style="padding:2rem;color:#e8e2d4;font-family:system-ui">
+    Kingdom Sim needs JavaScript enabled.
+  </p>
+</noscript>
+
+</body>
+</html>
