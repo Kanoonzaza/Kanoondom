@@ -1,0 +1,286 @@
+# Kingdom Sim v2 — Design Specification
+
+**Date:** 2026-08-12
+**Status:** Approved for build
+**Supersedes:** the v1 spec in `Claude work\kingdom-sim\docs\specs\`
+
+Grounded in [docs/research/](../research/INDEX.md), which records what the real
+Kingdom Adventurers actually does. This document records what **we** will do,
+and — explicitly — where and why we differ.
+
+---
+
+## 1. What this is
+
+A browser kingdom-builder that follows the real Kingdom Adventurers' mechanics
+closely: one tile world with territory radiating from Town Halls, residents who
+arrive by sea and open shops matching their professions, facilities that project
+stat auras, materials-and-samples research gated by Town Hall rank, equipment
+that grows by level bonus, monsters that spawn from nests and raid on the full
+moon, and eggs you steer into creatures by what you feed them.
+
+With one thing the real game does not have, and the reason this project exists:
+**it keeps growing while you are away.**
+
+### Design pillars
+
+Unchanged from v1. When two conflict, the higher wins.
+
+1. **Growth continues while you are away.** Closing the app must never feel like
+   a loss.
+2. **Conquest is a decision, not a queue.**
+3. **The economy is the engine.**
+4. **No rush, no failure.** No deadline, no game over, nothing permanently lost.
+5. **Layout has texture.** Now much more so: auras, adjacency, wasteland
+   rotation, and what sits nearest your Town Hall when the moon is full.
+
+---
+
+## 2. Deliberate deviations from the real game
+
+Everything else follows the research. These four are ours, on purpose.
+
+### 2.1 Offline growth — the founding deviation
+
+The real game **pauses when closed**. Ours does not. Carried over from v1
+unchanged, because it is the whole point:
+
+- Production continues at full rate while away.
+- **Storage capacity is the only limit** — per resource type, which the real
+  game's nine separate storage buildings suit perfectly.
+- **Raids never fire while away.** Pressure builds, capped; a region already at
+  threshold gets a season of grace on return.
+- **Two clocks**: a simulation clock that always runs, and a **calendar clock
+  that only advances during active play**, so a week away does not age the
+  kingdom five centuries.
+- Nothing can be lost in an absence.
+
+*Note we diverge from the real game's storage rule specifically: there,
+levelling a storage building raises its damage resilience, not its capacity. For
+us capacity **is** the lever that extends how long you can be away, and it is the
+most satisfying thing to upgrade. Ours wins.*
+
+### 2.2 No permadeath
+
+The real game deletes a resident whose lifespan reaches zero. Pillar 4 forbids
+that. Instead, lifespan reaching zero **retires the resident to Elder** — they
+stop adventuring, keep their house, and project a small town-wide aura as a
+lasting benefit. Losing all HP still costs a lifespan point, so combat has
+stakes; it just never costs you a person you have invested in.
+
+Consequence: the real game's **Eternal Candle** (infinite lifespan) is
+meaningless here and is dropped.
+
+### 2.3 No gacha, diamonds, or purchases
+
+The real game obtains some facilities and jobs through gacha, funded partly by
+premium currency. We replace that source with a **Surveyor's Office**: a facility
+that spends materials to commission a randomised survey returning new facility
+types and job offers. Same role in the economy — a chance-based source of
+variety — with no monetisation and no premium currency anywhere.
+
+### 2.4 No server features
+
+Friend IDs, Friend Post Office, Friends Agency, online Ranking Board and Weekly
+Conquest all require a backend we deliberately do not have. Cut. Where they fed
+another system (e.g. friends joining Conquests), ally monsters and residents fill
+the gap.
+
+**Also deferred, not cut:** Underground Arena, Trophy Room, Collector, Kairo
+Room, endgame/New Game+ replay content.
+
+---
+
+## 3. The world
+
+Following [world-and-map.md](../research/world-and-map.md).
+
+- A grid of **zones**, each a **16×16 tile area**. Launch with a 6×6 zone world
+  (36 zones); the schema supports the real game's ~100.
+- **Biomes**: grass, desert, rock, snow, swamp, lava, plus soil and sea. Mixed
+  within a zone, never uniform.
+- **Territory is a radius around each Town Hall** — base **14 tiles**, **+2 per
+  10 Town Hall levels**, up to **5 Town Halls**. Overlapping them wastes space,
+  so placement is a real decision.
+- **Fog** covers unexplored land. Clearing it attracts arrivals by sea.
+- **Peace Level** gates world expansion at percentage thresholds combined with
+  conditions (Town Hall count, rank). A growth gate, never a clock — which is
+  exactly our pillar 4.
+- **Wasteland**: gathering the same area too long degrades it; it can be
+  restored. Gathering becomes a rotation decision.
+
+## 4. Resources
+
+Three coins and five materials, each separately stored:
+
+| | |
+|---|---|
+| **Coins** | Bronze (equipment), Copper (residents spend; skills), Silver (special) |
+| **Materials** | Wood, Grass, Food, Ore, Mystic Ore |
+| **Other stored** | Items, Treasure, Eggs, Energy |
+
+Nine storage types, each with a capacity that **is** the offline ceiling for that
+resource, raised by High-Grade variants and by our level system.
+
+**Energy** limits cave attempts per sitting.
+
+## 5. Facilities
+
+Following [facilities.md](../research/facilities.md). Four categories:
+**Environment**, **Materials**, **Amenity**, **Indoor**.
+
+The defining mechanic is the **aura**: every facility projects bonuses across the
+twelve stats to residents nearby, plus percentage effects. Residents do not
+reliably gain everything — using a facility may raise one or two stats, or yield
+an item instead.
+
+**Combos are ours.** The real game confirms adjacency compatibility exists but
+does not publish the pairs, so we design a combo table in its spirit and mark it
+as our invention.
+
+Launch content: **~60 facilities** (schema supports 100+).
+
+## 6. Residents
+
+Following [residents-jobs.md](../research/residents-jobs.md).
+
+- **Twelve stats**: HP, MP, Vigor, ATK, DEF, SPD, Luck, INT, DEX, Gather, Move,
+  Heart. One vocabulary shared by residents, equipment and auras.
+- Arrive **by sea** as fog clears; **Port level** raises arrival quality.
+- **Profession opens a shop** — blacksmith → weapon shop, cook → restaurant
+  (consumes food), merchant → inn, monk → church. Combat jobs open none. Shop
+  stock quality tracks the occupant's level. *Population growth is business
+  growth.*
+- **Houses S–XL** decide occupancy and how much indoor furniture fits (a weapon
+  shop has 3 shelves in a Small house, 9 in an XL).
+- Daily rhythm: indoors morning, outdoors day, home at night.
+- **Marriage** via adjacent double beds; **children** once the kingdom has three
+  towns, with stronger second-generation stats.
+- **Skills** bought with copper (25–1800), from workbenches, or via rank.
+  ~40 at launch of the real game's ~150.
+
+## 7. Equipment
+
+Following [equipment.md](../research/equipment.md).
+
+Five slots — weapon, head, armor, shield, accessory. Eight ranks **F→S**. Twelve
+stat bonuses plus a **Level Bonus**.
+
+**We keep the real game's best rule verbatim**: an item with a higher Level Bonus
+beats one with higher base stats at max level. Growth rate over starting
+numbers — it rewards understanding rather than hoarding.
+
+Levelled at the **Master Smithy** (cost scales by rank; the diamond half of the
+real cost is dropped). Job × equipment-type compatibility from optimal to
+incompatible. Equipment gains **passive experience when residents shop in town**,
+tying gear progress to a healthy economy.
+
+Launch content: ~50 pieces.
+
+## 8. Research
+
+Following [research-system.md](../research/research-system.md).
+
+**No research currency.** Research spends **materials and samples**, and
+availability is gated by **Town Hall rank** — two independent axes: what is
+offered, and whether you can afford it.
+
+**Samples** (weapon/helmet/shield/armor/accessory) are a distinct ingredient
+class gating equipment research specifically.
+
+Town Hall rank is the master track: research availability, territory radius,
+monarch rank (D→C→B→A→S every 15 levels).
+
+## 9. Monsters and combat
+
+Following [monsters-dungeons.md](../research/monsters-dungeons.md).
+
+- Species keyed to **biome and level tier**; the same creature reappears at
+  higher tiers rather than being replaced. Soil and sea have their own sets.
+- **Nests spawn monsters continuously until cleared** — a visible source you can
+  go and remove, rather than v1's abstract accumulating pressure.
+- **Night** makes monsters more active. **Full moon** brings a raid on the town,
+  hitting **facilities nearest the centre**, and **caves appear**.
+- **Caves cost Energy**, hold treasure, and their monster level tracks your
+  highest conquered area.
+- **Combat is automatic**: nearby adventurers and ally monsters join. Boss
+  Conquests include the monarch.
+- Known maths we honour: **SPD sets turn order**; **magic ignores DEF and scales
+  on INT**; **Luck crits ignore DEF**.
+
+**The damage formula is ours** — the real one is unpublished. We keep v1's best
+idea: **every term of a battle is shown as a named line item**, so an automatic
+battle is still something the player can learn to predict.
+
+Launch content: ~60 monsters.
+
+## 10. Eggs
+
+Following [creature-collection.md](../research/creature-collection.md).
+
+**Shining monsters** drop eggs, collected automatically. Hatch in a **Monster
+Stable** (town defence) or a **Monster Room** (expedition companion) — one egg,
+two futures.
+
+Hatching is **steered by feeding**: each egg wants a stat category (Attack,
+Defense, Balanced, Special) across four bands — Low, Medium, High, and **Over,
+which resets you to Low**. Overfeeding is punished, so you aim for a window. You
+lose items, never a creature — the failure mode costs resources only, which keeps
+pillar 4 intact.
+
+Eight colour lines. Launch content: ~20 hatchable creatures.
+
+**Monster Fusion Lab** is undocumented in every source; if built, the design is
+entirely ours. Deferred past launch.
+
+## 11. Time
+
+- **Tick** = 1 real second. **Season** = 300 ticks (5 minutes). Four seasons a
+  year.
+- Speeds: pause, 1×, 2×, 3×.
+- **Day/night** within a season drives resident behaviour and monster activity.
+- **Full moon** on a fixed cycle drives raids and cave spawning.
+- **Two clocks** as in §2.1 — the calendar advances only during active play.
+
+## 12. Architecture
+
+Carried over from v1 unchanged, because it worked:
+
+    src/content/   tuning tables — every cost, rate, aura and bonus
+    src/sim/       the rules. Pure, DOM-free, runs under Node
+    src/ui/        rendering. Never mutates state
+    tests/         node --test, exercising sim/ only
+
+Plain ES modules. No framework, no build step, no dependencies, no runtime
+network access. Seeded RNG everywhere; `Math.random()` banned in `sim/`.
+
+`advanceTicks` walks time in **segments** that break at every event, so
+`advanceTicks(state, N)` is identical to N single-tick calls **by construction** —
+there is no separate offline code path to drift out of sync.
+
+### Hard test gates, from V2 onward
+
+1. **Offline parity** — catch-up over N seconds equals N ticks of play.
+2. **No raids offline** — any absence fires zero raids.
+3. **Never poorer** — no absence from 8 hours to two weeks leaves the player
+   worse off.
+4. **Calendar split** — time away does not age the kingdom.
+
+## 13. Launch content volumes
+
+| | Launch | Real game |
+|---|---|---|
+| Facilities | ~60 | 100+ |
+| Professions | ~15 | ~16 documented |
+| Equipment | ~50 | hundreds |
+| Skills | ~40 | ~150 |
+| Monsters | ~60 | 200+ |
+| Hatchables | ~20 | dozens |
+| World | 36 zones | ~100 |
+
+Schemas support the real counts; tables grow after launch.
+
+## 14. Deferred
+
+Underground Arena · Monster Fusion Lab · Trophy Room · Collector · Kairo Room ·
+endgame/New Game+ · anything requiring a server.

@@ -1,0 +1,11 @@
+{
+  "name": "kingdom-sim-v2",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "A kingdom-builder following Kingdom Adventurers' mechanics, that keeps growing while you're away.",
+  "scripts": {
+    "test": "node --test",
+    "balance": "node tools/balance.js"
+  }
+}
