@@ -82,6 +82,8 @@ export function newGame(seed = Math.floor(Math.random() * 0xffffffff), options =
 
     residents: [],
     parties: [],
+    /** Guards against two arrivals landing on the same day. */
+    lastArrivalDay: -1,
     nextId: 2,
 
     chronicle: [],

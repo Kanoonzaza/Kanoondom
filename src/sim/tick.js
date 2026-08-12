@@ -19,6 +19,7 @@ import { TICKS_PER_SEASON, DAY } from '../content/config.js';
 import {
   productionRates, storageCapacity, applyProduction, settleStorage,
 } from './economy.js';
+import { resolveArrivals, ticksToNextArrival } from './residents.js';
 
 /** A fresh record of everything that happened during an advance. */
 export function createReport() {
@@ -33,6 +34,7 @@ export function createReport() {
     seasons: [],
     completed: [],
     upgraded: [],
+    arrivals: [],
     battles: [],
     raids: [],
     raidWarnings: [],
@@ -46,8 +48,10 @@ export function createReport() {
  */
 export function ticksToNextEvent(state) {
   const toSeason = TICKS_PER_SEASON - (state.time.totalTicks % TICKS_PER_SEASON);
-  const toDay = DAY.ticksPerDay - (state.time.totalTicks % DAY.ticksPerDay);
-  let next = Math.min(toSeason, toDay);
+  // Day boundaries themselves change no rate — only an arrival does, so that is
+  // what we break on. Stopping every sixty ticks made a month-long catch-up
+  // take eight seconds.
+  let next = Math.min(toSeason, ticksToNextArrival(state));
 
   for (const key of Object.keys(state.world.facilities)) {
     const facility = state.world.facilities[key];
@@ -133,10 +137,16 @@ export function advanceTicks(state, ticks, options = {}) {
     completeConstruction(state, report);
 
     if (state.time.totalTicks % DAY.ticksPerDay === 0) {
-      report.daysElapsed += 1;
-      const day = state.time.totalTicks / DAY.ticksPerDay;
-      if (day % DAY.daysPerMoon === 0) report.fullMoons += 1;
+      // People arrive with the morning, if there is a bed for them.
+      resolveArrivals(state, report);
     }
+
+    // Days and moons are counted arithmetically rather than by stopping on
+    // each one, since nothing about them changes a rate.
+    const dayBefore = Math.floor((state.time.totalTicks - step) / DAY.ticksPerDay);
+    const dayAfter = Math.floor(state.time.totalTicks / DAY.ticksPerDay);
+    report.daysElapsed += dayAfter - dayBefore;
+    report.fullMoons += Math.floor(dayAfter / DAY.daysPerMoon) - Math.floor(dayBefore / DAY.daysPerMoon);
 
     if (state.time.totalTicks % TICKS_PER_SEASON === 0) {
       // Capacity can fall between seasons; make sure nothing is stranded above
@@ -167,7 +177,7 @@ export function mergeReports(a, b) {
     if (a.filledAtTick[key] === undefined) a.filledAtTick[key] = b.filledAtTick[key];
   }
 
-  for (const list of ['seasons', 'completed', 'upgraded', 'battles', 'raids', 'raidWarnings', 'milestones']) {
+  for (const list of ['seasons', 'completed', 'upgraded', 'arrivals', 'battles', 'raids', 'raidWarnings', 'milestones']) {
     a[list].push(...b[list]);
   }
   return a;

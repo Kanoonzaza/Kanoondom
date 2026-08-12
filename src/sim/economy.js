@@ -10,6 +10,7 @@
 import { RESOURCES, RESOURCE_IDS, CAPITAL_INCOME } from '../content/resources.js';
 import { facilityDef, effectScale } from '../content/facilities.js';
 import { isActive, outputMultiplier } from './facilities.js';
+import { residentRates } from './residents.js';
 
 /** Visit every finished, working facility. Callback gets (facility, def, origin). */
 export function forEachActiveFacility(state, fn) {
@@ -38,6 +39,14 @@ export function productionRates(state) {
 
   // Energy returns on its own; caves spend it.
   rates.energy += RESOURCES.energy.regenPerTick;
+
+  // Residents: their shops, and what they bring home themselves. One pass,
+  // because this is the hot path for offline catch-up.
+  const residents = residentRates(state);
+  rates.copper += residents.copper;
+  for (const [resource, amount] of Object.entries(residents.gathers)) {
+    rates[resource] += amount;
+  }
 
   forEachActiveFacility(state, (facility, def, origin) => {
     if (!def.produces) return;
@@ -86,7 +95,10 @@ export function applyProduction(state, ticks, rates, caps, report, absoluteTick)
     const spilled = raw - after;
 
     state.resources[id] = after;
-    report.gained[id] = (report.gained[id] ?? 0) + (after - before);
+    // Never negative. A store sitting above its cap (capacity fell, or a save
+    // was edited) is clamped DOWN here, and reporting that as a "gain" would
+    // put a minus sign in the welcome-back panel.
+    report.gained[id] = (report.gained[id] ?? 0) + Math.max(0, after - before);
 
     if (spilled > 0) {
       state.stats.wasted[id] = (state.stats.wasted[id] ?? 0) + spilled;

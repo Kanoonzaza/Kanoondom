@@ -188,6 +188,14 @@ export function remove(state, x, y, { refundFraction = 0.5 } = {}) {
   state.stock[found.id] = (state.stock[found.id] ?? 0) + 1;
   refund(state, def.cost, refundFraction);
 
+  // Taking a roof away must never delete the people under it. They wait,
+  // unhoused, until another bed exists.
+  if (def.housing) {
+    for (const resident of state.residents) {
+      if (resident.home === found.origin) resident.home = null;
+    }
+  }
+
   if (def.isTownHall) {
     state.townHalls = state.townHalls.filter((hall) => hall.origin !== found.origin);
   }

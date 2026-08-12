@@ -5,7 +5,7 @@
   "type": "module",
   "description": "A kingdom-builder following Kingdom Adventurers' mechanics, that keeps growing while you're away.",
   "scripts": {
-    "test": "node --test",
+    "test": "node --test --test-concurrency=1",
     "balance": "node tools/balance.js"
   }
 }

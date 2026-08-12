@@ -15,6 +15,9 @@ import {
 import { el, mount, short } from './ui/dom.js';
 import { createMapView, tileSheet, buildSheet, centreOn, mapMode } from './ui/map.js';
 import { openSheet, closeSheet, toast } from './ui/panels.js';
+import { renderPeople, residentSheet } from './ui/people.js';
+import { rehouse, freeBeds, totalBeds } from './sim/residents.js';
+import { professionDef } from './content/professions.js';
 import { TICKS_PER_SEASON, SPEEDS, ZONE_UNLOCKS } from './content/config.js';
 import { catchUp } from './sim/offline.js';
 import { place, remove, upgrade, palette, allFacilities } from './sim/facilities.js';
@@ -81,6 +84,15 @@ function boot() {
       kind: spilled.length > 0 ? 'warn' : 'good',
       ms: 12000,
     });
+    if (state.residents.length > 0) {
+      toast({
+        title: 'Your town carried on',
+        rows: [['Living here', `${state.residents.length}`, 'pos'],
+               ['Beds free', `${freeBeds(state)} of ${totalBeds(state)}`]],
+        kind: 'good',
+        ms: 10000,
+      });
+    }
   }
 
   buildTabs();
@@ -141,6 +153,17 @@ function handleReport(report) {
     markDirty();
   }
 
+  for (const arrival of report.arrivals) {
+    const profession = professionDef(arrival.professionId);
+    toast({
+      title: `${profession.icon} ${arrival.name} has arrived`,
+      rows: [['', `${profession.name}, level ${arrival.level}`, 'pos']],
+      kind: 'good',
+      ms: 5000,
+    });
+    markDirty();
+  }
+
   if (report.fullMoons > 0) {
     toast({
       title: '🌕 A full moon rises',
@@ -167,6 +190,13 @@ function render(now) {
 }
 
 function paint(now) {
+  // Never leave the player holding a facility they no longer have in stock —
+  // possible after a reset, a save import, or placing the last one.
+  if (mapMode.building && (state.stock[mapMode.building] ?? 0) <= 0) {
+    mapMode.building = null;
+    mapMode.hover = null;
+  }
+
   if (hudDirty) {
     renderHud();
     hudDirty = false;
@@ -249,7 +279,9 @@ function renderScreen() {
   const host = document.getElementById('screen');
   mapView = null;
 
-  if (view.screen === 'realm') {
+  if (view.screen === 'people') {
+    mount(host, renderPeople(state, peopleHandlers));
+  } else if (view.screen === 'realm') {
     mount(host, renderRealmSummary());
   } else {
     mount(host, renderWorld());
@@ -315,6 +347,23 @@ function renderWorld() {
 
   return wrapper;
 }
+
+const peopleHandlers = {
+  onInspect(residentId) {
+    const resident = state.residents.find((person) => person.id === residentId);
+    if (resident) openSheet(residentSheet(state, resident, closeSheet));
+  },
+  onRehouse() {
+    const moved = rehouse(state);
+    toast({
+      title: moved > 0 ? `${moved} found a home` : 'No spare beds',
+      rows: [['', moved > 0 ? 'They can trade again.' : 'Build another plot first.']],
+      kind: moved > 0 ? 'good' : 'warn',
+      ms: 4000,
+    });
+    markDirty();
+  },
+};
 
 function openBuildSheet() {
   openSheet(buildSheet(state, palette(state), {
@@ -406,10 +455,22 @@ function renderRealmSummary() {
     ]),
 
     el('div.card', {}, [
+      el('div.card-title', { text: 'Your people' }),
+      el('div.kv', {}, [
+        el('span', { text: 'Residents' }),
+        el('b', { class: 'pos', text: String(state.residents.length) }),
+      ]),
+      el('div.kv', {}, [
+        el('span', { text: 'Beds' }),
+        el('b', { text: `${freeBeds(state)} free of ${totalBeds(state)}` }),
+      ]),
+    ]),
+
+    el('div.card', {}, [
       el('div.card-title', { text: 'Where you stand' }),
       el('div.pi-note', {
-        text: `Your capital sits in ${zoneLabel(zone.zx, zone.zy)}. Everything else — resources, `
-          + `residents, research, monsters — arrives in the milestones ahead.`,
+        text: `Your capital sits in ${zoneLabel(zone.zx, zone.zy)}. Research, equipment, `
+          + `monsters and the creatures you can raise all arrive in the milestones ahead.`,
       }),
     ]),
   ]);
@@ -419,6 +480,7 @@ function renderRealmSummary() {
 
 const TABS = [
   { id: 'world', icon: '🗺️', label: 'World' },
+  { id: 'people', icon: '👥', label: 'People' },
   { id: 'realm', icon: '🏰', label: 'Realm' },
 ];
 
@@ -451,6 +513,11 @@ globalThis.kingdom = {
   save: () => saveToStorage(state),
   advance: (ticks) => { handleReport(advanceTicks(state, ticks)); markDirty(); },
   reset: () => {
+    // Map mode is module state and would otherwise survive into the new game,
+    // leaving the player mid-placement of something they no longer own.
+    mapMode.building = null;
+    mapMode.hover = null;
+    view.screen = 'world';
     state = newGame();
     state.stats.tilesCleared += clearTerritoryFog(state);
     saveToStorage(state);

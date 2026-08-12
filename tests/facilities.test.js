@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { RESOURCES, RESOURCE_IDS } from '../src/content/resources.js';
 import { newGame, serialize, deserialize } from '../src/state.js';
 import {
   canPlace, place, remove, relocate, upgrade, canUpgrade,
@@ -21,7 +22,7 @@ import { TOWN_HALL } from '../src/content/config.js';
 function kingdom(seed = 1) {
   const state = newGame(seed, { now: 0 });
   clearTerritoryFog(state);
-  for (const id of Object.keys(state.resources)) state.resources[id] = 100000;
+  for (const id of RESOURCE_IDS) state.resources[id] = Math.min(100000, RESOURCES[id].baseStorage);
   for (const id of Object.keys(state.stock)) state.stock[id] = 20;
   return state;
 }

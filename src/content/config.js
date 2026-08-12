@@ -111,6 +111,26 @@ export const DAY = {
   daysPerMoon: 10,
 };
 
+/** Residents (research: residents-jobs.md). */
+export const RESIDENTS = {
+  /** Every stat starts here before a profession's leanings are added. */
+  baseStat: 4,
+  statGrowthPerLevel: 0.18,
+
+  /** Arrival odds rise with how much land you have brought to light. */
+  tilesPerArrivalChance: 4000,
+  maxArrivalChance: 0.75,
+  maxArrivalLevel: 3,
+
+  /** Shop income scaling. */
+  incomePerLevel: 0.25,
+  incomePerHeart: 0.01,
+
+  /** What residents bring home themselves. */
+  gatherScale: 1,
+  gatherPerPoint: 0.02,
+};
+
 /** Offline catch-up. */
 export const OFFLINE = {
   minSecondsForReport: 60,

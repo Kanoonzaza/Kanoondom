@@ -84,6 +84,52 @@ export const FACILITIES = {
     blurb: 'Everything near clean water does a little better.',
   },
 
+  // --- Housing -------------------------------------------------------------
+  // "Give land to your residents and they'll set up stores based on their
+  // profession" (research). Plot size decides two things at once: how many
+  // people live there, and how many shelves their shop gets — which is why a
+  // Weapon Shop in an XL house is worth three of one in a small one.
+  plot_s: {
+    id: 'plot_s', name: 'Small Plot', icon: '🏠', category: 'housing',
+    size: { w: 2, h: 2 },
+    cost: { wood: 35 },
+    buildTicks: 35,
+    stock: 4,
+    housing: { beds: 1, shelves: 3 },
+    aura: { radius: 2, stats: { heart: 2 } },
+    blurb: 'Room for one. Every kingdom starts here.',
+  },
+  plot_m: {
+    id: 'plot_m', name: 'Medium Plot', icon: '🏡', category: 'housing',
+    size: { w: 3, h: 2 },
+    cost: { wood: 70, ore: 15 },
+    buildTicks: 60,
+    stock: 2,
+    housing: { beds: 2, shelves: 5 },
+    aura: { radius: 3, stats: { heart: 3, vigor: 1 } },
+    blurb: 'Two beds and a wider shopfront.',
+  },
+  plot_l: {
+    id: 'plot_l', name: 'Large Plot', icon: '🏘️', category: 'housing',
+    size: { w: 3, h: 3 },
+    cost: { wood: 120, ore: 40 },
+    buildTicks: 95,
+    stock: 1,
+    housing: { beds: 3, shelves: 7 },
+    aura: { radius: 3, stats: { heart: 4, vigor: 2 } },
+    blurb: 'Three under one roof, and shelves to match.',
+  },
+  plot_xl: {
+    id: 'plot_xl', name: 'Manor', icon: '🏰', category: 'housing',
+    size: { w: 4, h: 3 },
+    cost: { wood: 200, ore: 90, mysticOre: 10 },
+    buildTicks: 150,
+    stock: 0,
+    housing: { beds: 4, shelves: 9 },
+    aura: { radius: 4, stats: { heart: 6, vigor: 3, luck: 2 } },
+    blurb: 'Nine shelves. The best shop a resident can be given.',
+  },
+
   // --- Materials: production ----------------------------------------------
   field: {
     id: 'field', name: 'Field', icon: '🌾', category: 'materials',
@@ -197,10 +243,11 @@ export const FACILITIES = {
 };
 
 export const FACILITY_IDS = Object.keys(FACILITIES);
-export const FACILITY_CATEGORIES = ['environment', 'materials'];
+export const FACILITY_CATEGORIES = ['environment', 'housing', 'materials'];
 
 export const CATEGORY_LABELS = {
   environment: 'Environment',
+  housing: 'Housing — homes and the shops they carry',
   materials: 'Materials — production and storage',
 };
 

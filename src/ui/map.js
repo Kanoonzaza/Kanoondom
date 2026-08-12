@@ -10,7 +10,9 @@ import {
   hallRadius, zoneOf, zoneLabel, isZoneUnlocked, worldCentre,
 } from '../sim/world.js';
 import { BIOMES } from '../content/biomes.js';
-import { FACILITIES, facilityDef } from '../content/facilities.js';
+import {
+  FACILITIES, facilityDef, FACILITY_CATEGORIES, CATEGORY_LABELS,
+} from '../content/facilities.js';
 import { facilityAt, canPlace, footprintTiles } from '../sim/facilities.js';
 import { auraSources } from '../sim/aura.js';
 import { WORLD, WORLD_TILES_X, WORLD_TILES_Y } from '../content/config.js';
@@ -453,13 +455,13 @@ export function tileSheet(state, x, y, onClose, onAction) {
 export function buildSheet(state, entries, handlers) {
   const body = el('div.palette');
 
-  for (const category of ['environment', 'materials']) {
+  // Driven by the content list, never a hard-coded array here — a category
+  // added to the game must not be able to go missing from the menu.
+  for (const category of FACILITY_CATEGORIES) {
     const inCategory = entries.filter((entry) => entry.def.category === category);
     if (inCategory.length === 0) continue;
 
-    body.append(el('div.cat-head', {
-      text: category === 'materials' ? 'Materials — production and storage' : 'Environment',
-    }));
+    body.append(el('div.cat-head', { text: CATEGORY_LABELS[category] ?? category }));
 
     for (const entry of inCategory) {
       const { def, stock, affordable } = entry;
@@ -471,6 +473,9 @@ export function buildSheet(state, entries, handlers) {
       if (def.storage) {
         notes.push(Object.entries(def.storage)
           .map(([id, amount]) => `+${amount.toLocaleString()} ${id}`).join(', '));
+      }
+      if (def.housing) {
+        notes.push(`${def.housing.beds} bed${def.housing.beds === 1 ? '' : 's'}, ${def.housing.shelves} shelves`);
       }
       if (def.aura) {
         notes.push(`${Object.entries(def.aura.stats)

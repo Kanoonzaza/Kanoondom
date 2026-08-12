@@ -25,7 +25,7 @@ function kingdom(seed = 1, now = 0) {
 
 function rich(seed = 1, now = 0) {
   const state = kingdom(seed, now);
-  for (const id of RESOURCE_IDS) state.resources[id] = 100000;
+  for (const id of RESOURCE_IDS) state.resources[id] = RESOURCES[id].baseStorage;
   for (const id of Object.keys(state.stock)) state.stock[id] = 20;
   return state;
 }
