@@ -326,7 +326,12 @@ test('a long catch-up stays fast with a POPULATED town', () => {
   // fail merely because the machine was busy — a test that cries wolf gets
   // ignored, and the last time that happened here it hid a real 10x
   // regression. Headroom over the measured figure is deliberate.
-  assert.ok(elapsed < 4000, `a month-long catch-up took ${elapsed}ms`);
+  // Measured range on this machine: 0.9-2.6s standalone, ~1.5s in suite. The
+  // budget is set well above the worst of that because it once reported 6.9s
+  // on a busy machine while the code was fine — and a budget that flakes is a
+  // budget people learn to ignore. A real regression of the kind this exists
+  // to catch (V3: 827ms -> 8374ms) sails past it.
+  assert.ok(elapsed < 8000, `a month-long catch-up took ${elapsed}ms`);
 });
 
 test('residents do not break the no-poorer promise', () => {

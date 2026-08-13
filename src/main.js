@@ -18,6 +18,7 @@ import { openSheet, closeSheet, toast } from './ui/panels.js';
 import { renderPeople, residentSheet } from './ui/people.js';
 import { renderStudy } from './ui/study.js';
 import { renderForge, skillSheet } from './ui/forge.js';
+import { welcomeSheet, worthShowing } from './ui/welcome.js';
 import { forge, raiseAll, autoEquip } from './sim/equipment.js';
 import { learn } from './sim/skills.js';
 import { equipmentDef } from './content/equipment.js';
@@ -80,60 +81,13 @@ function boot() {
   } catch (err) {
     console.error('Offline catch-up failed:', err);
   }
-  if (welcome) {
-    const gained = RESOURCE_IDS
-      .filter((id) => (welcome.gained[id] ?? 0) >= 1)
-      .map((id) => `${RESOURCES[id].icon} +${Math.round(welcome.gained[id])}`)
-      .join('  ');
-    const spilled = RESOURCE_IDS.filter((id) => (welcome.wasted[id] ?? 0) > 1);
-    toast({
-      title: 'While you were away',
-      rows: [
-        ['', gained || 'the realm ticked over quietly'],
-        ...(spilled.length > 0
-          ? [['⚠ Overflowed', spilled.map((id) => RESOURCES[id].name).join(', '), 'neg']]
-          : []),
-      ],
-      kind: spilled.length > 0 ? 'warn' : 'good',
-      ms: 12000,
-    });
-    if ((welcome.raidWarnings ?? []).length > 0) {
-      toast({
-        title: '⚔️ They gathered while you were away',
-        rows: [
-          ['', 'Nothing attacked. Nothing ever does while you are gone.', 'pos'],
-          ['Threat', `${Math.round(welcome.threat)}`, 'neg'],
-          ['Quiet for', duration(graceRemaining(state))],
-        ],
-        kind: 'warn',
-        ms: 12000,
-        onTap: () => { view.screen = 'watch'; markDirty(); },
-      });
-    }
-
-    for (const study of welcome.research ?? []) {
-      toast({
-        title: `📜 ${study.name}`,
-        rows: [
-          ['Finished while you were away', grantedText(study.granted), 'pos'],
-          ...(study.granted.unlocked.length > 0
-            ? [['New in the build menu', study.granted.unlocked.map((id) => facilityDef(id).name).join(', '), 'pos']]
-            : []),
-        ],
-        kind: 'good',
-        ms: 10000,
-      });
-    }
-
-    if (state.residents.length > 0) {
-      toast({
-        title: 'Your town carried on',
-        rows: [['Living here', `${state.residents.length}`, 'pos'],
-               ['Beds free', `${freeBeds(state)} of ${totalBeds(state)}`]],
-        kind: 'good',
-        ms: 10000,
-      });
-    }
+  // The welcome-back panel replaces the old stack of toasts. Four toasts
+  // fighting for the same corner is not a summary — and the one thing that
+  // actually teaches (which store filled, and when) was the easiest to miss.
+  if (worthShowing(welcome)) {
+    openSheet(welcomeSheet(state, welcome, {
+      onGoTo: (screen) => { view.screen = screen; markDirty(); },
+    }, closeSheet));
   }
 
   buildTabs();
@@ -201,6 +155,17 @@ function handleReport(report) {
       rows: [['', `${profession.name}, level ${arrival.level}`, 'pos']],
       kind: 'good',
       ms: 5000,
+    });
+    markDirty();
+  }
+
+  for (const levelUp of report.levelUps) {
+    toast({
+      title: `${professionDef(levelUp.professionId).icon} ${levelUp.name} is now level ${levelUp.level}`,
+      rows: [['', 'Better at their trade, and room for another skill.', 'pos']],
+      kind: 'good',
+      ms: 6000,
+      onTap: () => { view.screen = 'forge'; markDirty(); },
     });
     markDirty();
   }

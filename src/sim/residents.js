@@ -183,6 +183,33 @@ export function makeResident(state, { name, professionId, level }) {
 }
 
 /**
+ * A name nobody in town is already using.
+ *
+ * Thirty-two names and a town of twenty-five makes collisions near certain,
+ * and two people called Wystan — one a cook, one a knight — is a genuinely
+ * confusing thing to hand a player. Walks the pool from wherever the roll
+ * landed, so it stays a pure function of the day and the town: a chunked run
+ * and a live one see the same residents at that moment and so pick the same
+ * name. Falls back to a surname rather than ever failing.
+ */
+export function freeName(state, wanted) {
+  const taken = new Set(state.residents.map((resident) => resident.name));
+  if (!taken.has(wanted)) return wanted;
+
+  const start = Math.max(0, FIRST_NAMES.indexOf(wanted));
+  for (let step = 1; step <= FIRST_NAMES.length; step++) {
+    const candidate = FIRST_NAMES[(start + step) % FIRST_NAMES.length];
+    if (!taken.has(candidate)) return candidate;
+  }
+
+  // Every name in the pool is spoken for. Number them rather than give up.
+  for (let suffix = 2; ; suffix++) {
+    const candidate = `${wanted} the ${suffix}${suffix === 2 ? 'nd' : suffix === 3 ? 'rd' : 'th'}`;
+    if (!taken.has(candidate)) return candidate;
+  }
+}
+
+/**
  * Bring in whoever is due today, if there is a bed. People do not queue on the
  * docks forever — an unhoused kingdom simply stops attracting anyone.
  */
@@ -196,7 +223,7 @@ export function resolveArrivals(state, report) {
   const newcomer = arrivalForDay(state, day);
   if (!newcomer) return;
 
-  const resident = makeResident(state, newcomer);
+  const resident = makeResident(state, { ...newcomer, name: freeName(state, newcomer.name) });
   const home = firstFreeHome(state);
   if (!home) return;
 
@@ -208,6 +235,97 @@ export function resolveArrivals(state, report) {
     professionId: resident.professionId,
     level: resident.level,
   });
+}
+
+// ---------------------------------------------------------------------------
+// Growing up
+// ---------------------------------------------------------------------------
+//
+// People improve by living here, and that happens while the player is away
+// like everything else does. A level changes a resident's stats, and therefore
+// the kingdom's rates, so unlike equipment experience it CANNOT simply be
+// banked — the clock has to stop exactly where it happens. `ticksToNextLevelUp`
+// is what makes that exact rather than approximate.
+
+/** Experience to go from `level` to the next. */
+export function xpForLevel(level) {
+  return Math.round(RESIDENTS.xpForLevelBase * Math.pow(level, RESIDENTS.xpForLevelExponent));
+}
+
+/**
+ * Experience per tick for one resident.
+ *
+ * Depends only on things that are O(1) to read: whether they have a standing
+ * roof, how many shelves it affords them, and whether their trade has them
+ * working. Deliberately NOT the aura — see the note in content/config.js.
+ */
+export function xpRateOf(state, resident) {
+  if (resident.level >= RESIDENTS.maxLevel) return 0;
+  if (resident.home === null) return 0;
+
+  const home = state.world.facilities[resident.home];
+  if (!isStanding(home)) return 0;
+
+  const shelves = facilityDef(home.id).housing?.shelves ?? 0;
+  const profession = professionDef(resident.professionId);
+  const working = profession.shop || profession.gathers ? 1 + RESIDENTS.xpWorkingBonus : 1;
+
+  return RESIDENTS.xpPerTick * (1 + shelves * RESIDENTS.xpPerShelf) * working;
+}
+
+/**
+ * Ticks until the first resident is due a level, or Infinity if none is.
+ *
+ * Cheap by construction: one pass over the residents, no aura, no facilities.
+ */
+export function ticksToNextLevelUp(state) {
+  let soonest = Infinity;
+  for (const resident of state.residents) {
+    const rate = xpRateOf(state, resident);
+    if (rate <= 0) continue;
+
+    const needed = xpForLevel(resident.level) - resident.xp;
+    if (needed <= 0) return 1;
+    soonest = Math.min(soonest, Math.max(1, Math.ceil(needed / rate)));
+  }
+  return soonest;
+}
+
+/** Bank experience for a span. Rates are constant across it by construction. */
+export function advanceResidentXp(state, ticks) {
+  for (const resident of state.residents) {
+    const rate = xpRateOf(state, resident);
+    if (rate > 0) resident.xp += rate * ticks;
+  }
+}
+
+/**
+ * Turn banked experience into levels. Called at segment boundaries only.
+ *
+ * A level raises their base stats, so this is where a resident actually gets
+ * better at their trade — and why the boundary above has to be exact.
+ */
+export function applyLevelUps(state, report) {
+  for (const resident of state.residents) {
+    let levelled = 0;
+    while (resident.level < RESIDENTS.maxLevel && resident.xp >= xpForLevel(resident.level)) {
+      resident.xp -= xpForLevel(resident.level);
+      resident.level += 1;
+      levelled++;
+    }
+    if (levelled === 0) continue;
+
+    // Base stats are a function of level, so they are re-derived rather than
+    // nudged — nudging is how two sources of truth start.
+    resident.baseStats = baseStatsFor(resident.professionId, resident.level);
+    report.levelUps.push({
+      id: resident.id,
+      name: resident.name,
+      professionId: resident.professionId,
+      level: resident.level,
+      gained: levelled,
+    });
+  }
 }
 
 // ---------------------------------------------------------------------------

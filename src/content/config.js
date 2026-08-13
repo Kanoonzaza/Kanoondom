@@ -141,6 +141,29 @@ export const RESIDENTS = {
   /** What residents bring home themselves. */
   gatherScale: 1,
   gatherPerPoint: 0.02,
+
+  /**
+   * Growing up.
+   *
+   * People gain experience simply by living and working here, and that
+   * accrues while the player is away like everything else — a resident who
+   * went to bed a level 3 farmer can wake up a level 4 one. It is what opens
+   * skill slots, and without it the copper economy has nowhere to go (the V6
+   * balance run measured the whole town's lifetime skill spend at ~2,100).
+   *
+   * The rate deliberately depends only on CHEAP things: whether they have a
+   * roof, and how good it is. Making it depend on the aura would mean walking
+   * every facility per resident inside `ticksToNextEvent`, which is the
+   * performance mistake this project has made three times already.
+   */
+  maxLevel: 20,
+  xpPerTick: 0.02,
+  /** A better home grows the person in it. Shelves stand in for how good it is. */
+  xpPerShelf: 0.06,
+  /** Somebody minding a shop or out gathering learns faster than an idler. */
+  xpWorkingBonus: 0.25,
+  xpForLevelBase: 600,
+  xpForLevelExponent: 1.25,
 };
 
 /** Offline catch-up. */

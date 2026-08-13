@@ -19,7 +19,10 @@ import { TICKS_PER_SEASON, DAY } from '../content/config.js';
 import {
   productionRates, storageCapacity, applyProduction, settleStorage,
 } from './economy.js';
-import { resolveArrivals, ticksToNextArrival, residentRates } from './residents.js';
+import {
+  resolveArrivals, ticksToNextArrival, residentRates,
+  advanceResidentXp, applyLevelUps, ticksToNextLevelUp,
+} from './residents.js';
 import { advanceResearch, studyPower } from './research.js';
 import { advanceEquipment } from './equipment.js';
 import { stepThreat } from './raids.js';
@@ -38,6 +41,7 @@ export function createReport() {
     completed: [],
     upgraded: [],
     arrivals: [],
+    levelUps: [],
     research: [],
     battles: [],
     raids: [],
@@ -56,7 +60,10 @@ export function ticksToNextEvent(state) {
   // Day boundaries themselves change no rate — only an arrival does, so that is
   // what we break on. Stopping every sixty ticks made a month-long catch-up
   // take eight seconds.
-  let next = Math.min(toSeason, ticksToNextArrival(state));
+  // A level-up changes a resident's stats, and so the kingdom's rates. Unlike
+  // equipment experience it cannot just be banked — the clock has to stop
+  // exactly where it happens, or a chunked run and a live one would disagree.
+  let next = Math.min(toSeason, ticksToNextArrival(state), ticksToNextLevelUp(state));
 
   for (const key of Object.keys(state.world.facilities)) {
     const facility = state.world.facilities[key];
@@ -98,6 +105,10 @@ function applySegment(state, ticks, report, offline) {
   // levels are claimed at the forge — so like research this changes no rate
   // and needs no segment of its own. See sim/equipment.js for why that matters.
   advanceEquipment(state, ticks, report, residents.copper);
+
+  // People learn by living here. Unlike gear, this DOES change rates when it
+  // tips over, which is why `ticksToNextEvent` breaks on it above.
+  advanceResidentXp(state, ticks);
 
   for (const key of Object.keys(state.world.facilities)) {
     const facility = state.world.facilities[key];
@@ -155,6 +166,7 @@ export function advanceTicks(state, ticks, options = {}) {
     remaining -= step;
 
     completeConstruction(state, report);
+    applyLevelUps(state, report);
 
     // Threat gathers whether or not anybody is watching; raids resolve only
     // when somebody is. That asymmetry IS the offline promise.
@@ -202,7 +214,7 @@ export function mergeReports(a, b) {
     if (a.filledAtTick[key] === undefined) a.filledAtTick[key] = b.filledAtTick[key];
   }
 
-  for (const list of ['seasons', 'completed', 'upgraded', 'arrivals', 'research', 'battles', 'raids', 'raidWarnings', 'milestones']) {
+  for (const list of ['seasons', 'completed', 'upgraded', 'arrivals', 'levelUps', 'research', 'battles', 'raids', 'raidWarnings', 'milestones']) {
     a[list].push(...b[list]);
   }
   return a;

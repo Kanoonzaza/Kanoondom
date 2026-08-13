@@ -429,20 +429,19 @@ function runPace(seed) {
     + `bronze ${Math.round(state.resources.bronze)} of ${Math.round(caps.bronze)}`);
   check(skillsBought > 0, 'spends copper on skills at all', `${skillsBought} learned`);
   check(gearMade > 0, 'forges gear at all', `${gearMade} pieces`);
-  // OPEN FINDING, measured rather than guessed: skills are slot-limited by
-  // resident LEVEL, and nothing in the game grants a resident experience yet.
-  // A 25-person town at arrival levels has ~50 slots and could spend a lifetime
-  // total of about 2,100 copper on them — roughly two seasons of income against
-  // a cap that refills in nine. So copper still ends up pinned even with the
-  // sink V6 added. The fix is resident levelling, which changes stats and so
-  // needs its own segment boundary in the clock; that is its own milestone, not
-  // a bolt-on at the end of this one. Forging repeatable copper-costed gear
-  // helps but arrives too late to carry it alone.
+  // OPEN FINDING, and the diagnosis has moved on. V6 left this pinned because
+  // residents never levelled, so skill slots never opened; V7's levelling
+  // nearly tripled the spend (32 skills -> 89 across the same run). It is still
+  // pinned, so the remaining cause is simpler and duller: late-game copper
+  // INCOME outruns every sink the design has, and no amount of one-off
+  // purchases catches a rate. That is a tuning problem — sink sizes and income
+  // curves — which is exactly what V10 is for, and it is recorded here with
+  // the numbers rather than hidden behind a passing check.
   note(
     state.resources.copper < caps.copper - 0.5,
     'has somewhere left to spend its copper',
     `${Math.round(state.resources.copper)} of ${Math.round(caps.copper)} `
-    + '— residents never level, so skill slots never open'
+    + `— ${skillsBought} skills bought and still capped; income outruns the sinks (V10)`
   );
 
   return reached;
