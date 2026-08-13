@@ -19,6 +19,8 @@ import { takeId, dayNumber } from '../state.js';
 import { tileX, tileY, isCleared } from './world.js';
 import { isActive, isStanding } from './facilities.js';
 import { auraAt } from './aura.js';
+import { gearStatsOf, gearStat } from './equipment.js';
+import { skillStatsOf, effectsOf, skillStat, effectValue } from './skills.js';
 
 const FIRST_NAMES = [
   'Alden', 'Bryn', 'Cass', 'Dara', 'Edric', 'Fen', 'Greta', 'Hale',
@@ -172,6 +174,9 @@ export function makeResident(state, { name, professionId, level }) {
     xp: 0,
     /** Tile index of their home plot, or null while they are waiting. */
     home: null,
+    /** Five slots, all empty. Filled at the Master Smithy (V6). */
+    gear: { weapon: null, head: null, armor: null, shield: null, accessory: null },
+    skills: [],
     baseStats: baseStatsFor(professionId, level),
     arrivedOnDay: dayNumber(state),
   };
@@ -216,6 +221,13 @@ export function resolveArrivals(state, report) {
  */
 export function statsOf(state, resident) {
   const stats = { ...resident.baseStats };
+
+  // What they carry and what they know go with them everywhere; only the aura
+  // depends on standing somewhere in particular.
+  const gear = gearStatsOf(state, resident);
+  const skills = skillStatsOf(resident);
+  for (const stat of STAT_IDS) stats[stat] += (gear[stat] ?? 0) + (skills[stat] ?? 0);
+
   if (resident.home === null) return stats;
 
   const aura = auraAt(state, tileX(resident.home), tileY(resident.home));
@@ -287,17 +299,24 @@ export function residentRates(state) {
     const profession = professionDef(resident.professionId);
     const aura = auraFor(resident.home);
 
+    // Gear and skills are read ONE STAT AT A TIME, never as whole objects.
+    // Building a twelve-key stats object per item per resident per segment is
+    // what turned a month-long catch-up into six seconds — the V3 mistake in
+    // new clothes. Each branch below asks only for the number it needs.
+    const statOf = (id) => resident.baseStats[id] + (aura[id] ?? 0)
+      + gearStat(state, resident, id) + skillStat(resident, id);
+
     if (profession.shop) {
-      const heart = resident.baseStats.heart + (aura.heart ?? 0);
       copper += profession.shop.incomePerShelf
         * facilityDef(home.id).housing.shelves
         * (1 + (resident.level - 1) * RESIDENTS.incomePerLevel)
-        * (1 + heart * RESIDENTS.incomePerHeart);
+        * (1 + statOf('heart') * RESIDENTS.incomePerHeart)
+        * (1 + effectValue(resident, 'incomeMultiplier'));
     }
 
     if (profession.gathers) {
-      const gather = resident.baseStats.gather + (aura.gather ?? 0);
-      const multiplier = 1 + gather * RESIDENTS.gatherPerPoint;
+      const multiplier = (1 + statOf('gather') * RESIDENTS.gatherPerPoint)
+        * (1 + effectValue(resident, 'gatherMultiplier'));
       for (const [resource, amount] of Object.entries(profession.gathers)) {
         gathers[resource] = (gathers[resource] ?? 0) + amount * multiplier * RESIDENTS.gatherScale;
       }
@@ -307,8 +326,8 @@ export function residentRates(state) {
     // segment, and walking the residents a second time for it would undo the
     // V3 performance fix this loop exists to be.
     if (profession.studies) {
-      const int = resident.baseStats.int + (aura.int ?? 0);
-      const wits = 1 + int * STUDY.perInt;
+      const wits = (1 + statOf('int') * STUDY.perInt)
+        * (1 + effectValue(resident, 'studyMultiplier'));
       study += STUDY.researcherPower * wits;
       gathers.tome = (gathers.tome ?? 0) + STUDY.tomesPerTick * wits;
     }

@@ -34,6 +34,11 @@ import {
   developmentPoints, promotionRequirement,
 } from '../src/sim/research.js';
 import { canSurvey, runSurvey, surveyOffice } from '../src/sim/survey.js';
+import {
+  smithy, forgeable, canForge, forge, autoEquip, allItems, itemsAwaitingForge,
+  raiseAll, equippedItems,
+} from '../src/sim/equipment.js';
+import { skillList, learn } from '../src/sim/skills.js';
 import { clearNest, graceRemaining, expeditionForecast } from '../src/sim/raids.js';
 import { knownNests, activeNests, threatRate, wardStrength } from '../src/sim/monsters.js';
 import { THREAT } from '../src/content/monsters.js';
@@ -147,7 +152,7 @@ function takeTurn(state) {
   // Build anything a study has just handed over. A real player builds the
   // thing they waited for; the first version of this bot did not, and spent
   // five simulated hours with a Surveyor's Office sitting in its pocket.
-  for (const id of ['surveyor_office', 'library']) {
+  for (const id of ['surveyor_office', 'library', 'master_smithy']) {
     if (stockOf(state, id) > 0) tryBuild(state, id);
   }
 
@@ -196,6 +201,46 @@ function takeTurn(state) {
     if (entry?.affordable && entry.stock > 0) {
       if (tryBuild(state, id)) break;
     }
+  }
+
+  tendTheForge(state);
+  spendCopperOnSkills(state);
+}
+
+/**
+ * Forge what can be forged, hand it out, and claim the levels that experience
+ * has already paid for. An ordinary player visits the forge; they do not
+ * optimise it.
+ */
+function tendTheForge(state) {
+  if (!smithy(state)) return;
+
+  // One of each pattern is enough to dress the town before hoarding duplicates.
+  for (const def of forgeable(state)) {
+    const owned = allItems(state).filter((item) => item.defId === def.id).length;
+    if (owned >= state.residents.length + 1) continue;
+    if (canForge(state, def.id).ok) { forge(state, def.id); break; }
+  }
+
+  for (const resident of state.residents) autoEquip(state, resident);
+
+  // Claim what is waiting, cheapest first — which is also the best value, since
+  // an F-rank costs three bronze a level and grows for ever.
+  for (const entry of itemsAwaitingForge(state).slice(0, 4)) {
+    raiseAll(state, entry.item.id);
+  }
+}
+
+/** Skills are what copper is FOR, so an ordinary player buys them. */
+function spendCopperOnSkills(state) {
+  for (const resident of state.residents) {
+    const affordable = skillList(state, resident)
+      .filter((entry) => entry.status === 'ready')
+      .sort((a, b) => a.def.cost - b.def.cost);
+    if (affordable.length === 0) continue;
+    // Leave a working float rather than spending the treasury to zero.
+    if (state.resources.copper < affordable[0].def.cost * 3) continue;
+    learn(state, resident, affordable[0].def.id);
   }
 }
 
@@ -371,9 +416,33 @@ function runPace(seed) {
   note(
     pinned.length <= 2,
     'is not left with every store pinned full',
-    pinned.length > 2
-      ? `${pinned.length} of ${RESOURCE_IDS.length} full — expected until V6 adds things to buy`
-      : 'none'
+    pinned.length > 2 ? `${pinned.length} of ${RESOURCE_IDS.length} full` : 'none'
+  );
+
+  // Copper is the one that matters, because copper is what SKILLS cost, and
+  // skills are the permanent sink V6 added for exactly this. A treasury pinned
+  // at its cap means earning has stopped meaning anything.
+  const skillsBought = state.residents.reduce((sum, r) => sum + (r.skills?.length ?? 0), 0);
+  const gearMade = allItems(state).length;
+  log(`        ${skillsBought} skills learned · ${gearMade} pieces forged · `
+    + `copper ${Math.round(state.resources.copper)} of ${Math.round(caps.copper)} · `
+    + `bronze ${Math.round(state.resources.bronze)} of ${Math.round(caps.bronze)}`);
+  check(skillsBought > 0, 'spends copper on skills at all', `${skillsBought} learned`);
+  check(gearMade > 0, 'forges gear at all', `${gearMade} pieces`);
+  // OPEN FINDING, measured rather than guessed: skills are slot-limited by
+  // resident LEVEL, and nothing in the game grants a resident experience yet.
+  // A 25-person town at arrival levels has ~50 slots and could spend a lifetime
+  // total of about 2,100 copper on them — roughly two seasons of income against
+  // a cap that refills in nine. So copper still ends up pinned even with the
+  // sink V6 added. The fix is resident levelling, which changes stats and so
+  // needs its own segment boundary in the clock; that is its own milestone, not
+  // a bolt-on at the end of this one. Forging repeatable copper-costed gear
+  // helps but arrives too late to carry it alone.
+  note(
+    state.resources.copper < caps.copper - 0.5,
+    'has somewhere left to spend its copper',
+    `${Math.round(state.resources.copper)} of ${Math.round(caps.copper)} `
+    + '— residents never level, so skill slots never open'
   );
 
   return reached;

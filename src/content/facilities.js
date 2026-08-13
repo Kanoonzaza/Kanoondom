@@ -315,6 +315,19 @@ export const FACILITIES = {
     blurb: 'Food from standing water. Wants swamp under it.',
   },
 
+  master_smithy: {
+    id: 'master_smithy', name: 'Master Smithy', icon: '\u{1F528}', category: 'amenity',
+    size: { w: 3, h: 2 },
+    cost: { ore: 160, wood: 90 },
+    buildTicks: 120,
+    stock: 0,
+    locked: true,
+    aura: { radius: 3, stats: { atk: 5, dex: 6 } },
+    /** Gear is forged and levelled here (research: equipment.md). */
+    forges: true,
+    blurb: 'Forges gear, and raises what your people already carry. Levelling costs bronze.',
+  },
+
   // --- Materials: high-grade storage ---------------------------------------
   // The research-gated tier. Storage is the only cap on what accumulates while
   // you are away, so these are the most valuable things research can give you.

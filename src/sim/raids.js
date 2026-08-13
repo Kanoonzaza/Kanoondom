@@ -272,6 +272,9 @@ export function clearNest(state, nest) {
     const reward = {
       copper: Math.round(120 * nest.tier * rng.float(0.8, 1.3)),
       ore: Math.round(40 * nest.tier * rng.float(0.7, 1.4)),
+      // Bronze comes off what the monsters were sitting on, and goes into
+      // levelling gear at the Master Smithy. Fighting is how equipment grows.
+      bronze: Math.round(70 * nest.tier * rng.float(0.8, 1.4)),
     };
     if (rng.next() < 0.35) reward.sample = 1;
     if (rng.next() < 0.5) reward.tome = 1 + Math.floor(nest.tier / 2);

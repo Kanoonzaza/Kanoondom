@@ -21,6 +21,7 @@ import {
 } from './economy.js';
 import { resolveArrivals, ticksToNextArrival, residentRates } from './residents.js';
 import { advanceResearch, studyPower } from './research.js';
+import { advanceEquipment } from './equipment.js';
 import { stepThreat } from './raids.js';
 
 /** A fresh record of everything that happened during an advance. */
@@ -92,6 +93,11 @@ function applySegment(state, ticks, report, offline) {
   if (state.research?.active) {
     advanceResearch(state, ticks, report, studyPower(state, residents.study));
   }
+
+  // Gear learns from the town's trade. Experience is only a number going up —
+  // levels are claimed at the forge — so like research this changes no rate
+  // and needs no segment of its own. See sim/equipment.js for why that matters.
+  advanceEquipment(state, ticks, report, residents.copper);
 
   for (const key of Object.keys(state.world.facilities)) {
     const facility = state.world.facilities[key];

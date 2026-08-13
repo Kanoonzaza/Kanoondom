@@ -11,6 +11,7 @@ import { RESOURCES, RESOURCE_IDS, CAPITAL_INCOME } from '../content/resources.js
 import { facilityDef, effectScale } from '../content/facilities.js';
 import { isActive, outputMultiplier } from './facilities.js';
 import { residentRates } from './residents.js';
+import { bestEffect } from './skills.js';
 
 /** Visit every finished, working facility. Callback gets (facility, def, origin). */
 export function forEachActiveFacility(state, fn) {
@@ -72,6 +73,14 @@ export function storageCapacity(state) {
       caps[resource] += amount * scale;
     }
   });
+
+  // The best Quartermaster in the kingdom widens every store. Storage is the
+  // only cap on what an absence is worth, so this is one of the strongest
+  // things a skill can do.
+  const found = bestEffect(state, 'storageMultiplier');
+  if (found > 0) {
+    for (const id of RESOURCE_IDS) caps[id] *= 1 + found;
+  }
 
   return caps;
 }

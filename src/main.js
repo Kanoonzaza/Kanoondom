@@ -17,6 +17,11 @@ import { createMapView, tileSheet, buildSheet, centreOn, mapMode } from './ui/ma
 import { openSheet, closeSheet, toast } from './ui/panels.js';
 import { renderPeople, residentSheet } from './ui/people.js';
 import { renderStudy } from './ui/study.js';
+import { renderForge, skillSheet } from './ui/forge.js';
+import { forge, raiseAll, autoEquip } from './sim/equipment.js';
+import { learn } from './sim/skills.js';
+import { equipmentDef } from './content/equipment.js';
+import { skillDef } from './content/skills.js';
 import {
   startResearch, cancelResearch, promote, checkMapRewards, townRank,
 } from './sim/research.js';
@@ -353,6 +358,8 @@ function renderScreen() {
     mount(host, renderPeople(state, peopleHandlers));
   } else if (view.screen === 'study') {
     mount(host, renderStudy(state, studyHandlers));
+  } else if (view.screen === 'forge') {
+    mount(host, renderForge(state, forgeHandlers));
   } else if (view.screen === 'watch') {
     mount(host, renderWatch(state, watchHandlers));
   } else if (view.screen === 'realm') {
@@ -558,6 +565,102 @@ const watchHandlers = {
   },
 };
 
+const forgeHandlers = {
+  onForge(defId) {
+    const result = forge(state, defId);
+    if (!result.ok) {
+      toast({ title: 'Cannot forge that', rows: [['', result.reason]], kind: 'bad', ms: 3500 });
+      return;
+    }
+    toast({
+      title: `🔨 ${equipmentDef(defId).name}`,
+      rows: [['', 'On the rack. Give it to somebody and it starts learning.', 'pos']],
+      kind: 'good',
+      ms: 5000,
+    });
+    saveToStorage(state);
+    markDirty();
+  },
+
+  onRaise(itemId) {
+    const item = state.equipment[itemId];
+    const { levels, spent } = raiseAll(state, itemId);
+    if (levels === 0) {
+      toast({ title: 'Not yet', rows: [['', 'Not enough bronze, or not enough learned']], kind: 'warn', ms: 3500 });
+      return;
+    }
+    toast({
+      title: `${equipmentDef(item.defId).name} is now level ${item.level}`,
+      rows: [
+        ['Raised', `+${levels} level${levels === 1 ? '' : 's'}`, 'pos'],
+        ['Bronze spent', String(spent)],
+      ],
+      kind: 'good',
+      ms: 6000,
+    });
+    saveToStorage(state);
+    markDirty();
+  },
+
+  onAutoEquip(residentId) {
+    const resident = state.residents.find((person) => person.id === residentId);
+    if (!resident) return;
+    const given = autoEquip(state, resident);
+    toast({
+      title: given.length > 0 ? `${resident.name} is kitted out` : 'Nothing suitable',
+      rows: [[
+        '',
+        given.length > 0
+          ? given.map((item) => equipmentDef(item.defId).name).join(', ')
+          : 'Nothing on the rack they can use.',
+        given.length > 0 ? 'pos' : '',
+      ]],
+      kind: given.length > 0 ? 'good' : 'warn',
+      ms: 5000,
+    });
+    saveToStorage(state);
+    markDirty();
+  },
+
+  onAutoEquipAll() {
+    let given = 0;
+    for (const resident of state.residents) given += autoEquip(state, resident).length;
+    toast({
+      title: given > 0 ? `${given} pieces handed out` : 'Nothing to hand out',
+      rows: [['', given > 0 ? 'Gear only learns while somebody is wearing it.' : 'Nobody can use what is left.']],
+      kind: given > 0 ? 'good' : 'warn',
+      ms: 5000,
+    });
+    saveToStorage(state);
+    markDirty();
+  },
+
+  onOpenSkills(residentId) {
+    const resident = state.residents.find((person) => person.id === residentId);
+    if (resident) openSheet(skillSheet(state, resident, forgeHandlers, closeSheet));
+  },
+
+  onLearn(residentId, skillId) {
+    const resident = state.residents.find((person) => person.id === residentId);
+    if (!resident) return;
+    const result = learn(state, resident, skillId);
+    if (!result.ok) {
+      toast({ title: 'Cannot learn that', rows: [['', result.reason]], kind: 'bad', ms: 3500 });
+      return;
+    }
+    toast({
+      title: `${resident.name} learned ${skillDef(skillId).name}`,
+      rows: [['', skillDef(skillId).blurb, 'pos']],
+      kind: 'good',
+      ms: 5000,
+    });
+    saveToStorage(state);
+    // The sheet is still open and now out of date.
+    openSheet(skillSheet(state, resident, forgeHandlers, closeSheet));
+    markDirty();
+  },
+};
+
 function openBuildSheet() {
   openSheet(buildSheet(state, palette(state), {
     onPick: (facilityId) => {
@@ -692,6 +795,7 @@ const TABS = [
   { id: 'people', icon: '👥', label: 'People' },
   { id: 'study', icon: '📜', label: 'Study' },
   { id: 'watch', icon: '⚔️', label: 'Watch' },
+  { id: 'forge', icon: '🔨', label: 'Forge' },
   { id: 'realm', icon: '🏰', label: 'Realm' },
 ];
 

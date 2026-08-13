@@ -14,7 +14,7 @@ import {
   TICKS_PER_SEASON, SEASONS_PER_YEAR, SEASON_NAMES, DAY, WORLD_TILES_X,
 } from './content/config.js';
 
-export const SCHEMA_VERSION = 3;
+export const SCHEMA_VERSION = 4;
 export const STORAGE_KEY = 'kingdom-sim-v2/save';
 
 export function newGame(seed = Math.floor(Math.random() * 0xffffffff), options = {}) {
@@ -118,6 +118,18 @@ export function newGame(seed = Math.floor(Math.random() * 0xffffffff), options =
     graceUntilTick: 0,
 
     caves: { visits: 0, enteredMoon: -1 },
+
+    /**
+     * Every piece of gear in the kingdom, keyed by item id.
+     *
+     * Items are instances, not types: two Bronze Swords are two entries with
+     * their own levels and their own banked experience. `owner` points at the
+     * resident wearing it, and that resident's `gear` points back — one is the
+     * index for "who has this?", the other for "what is she wearing?".
+     */
+    equipment: {},
+    /** Equipment patterns research has taught the Master Smithy. */
+    equipmentKnown: [],
 
     residents: [],
     parties: [],
@@ -273,6 +285,17 @@ export function migrate(save) {
     state.schemaVersion = 3;
   }
 
+  // 3 -> 4: equipment and skills.
+  if (state.schemaVersion < 4) {
+    state.equipment = {};
+    state.equipmentKnown = [];
+    for (const resident of state.residents) {
+      resident.gear = { weapon: null, head: null, armor: null, shield: null, accessory: null };
+      resident.skills = [];
+    }
+    state.schemaVersion = 4;
+  }
+
   // Resources and facilities are added between versions more often than the
   // schema changes, so fill any gaps rather than adding a migration each time.
   // A missing store must read 0, not undefined — undefined poisons every sum
@@ -287,6 +310,15 @@ export function migrate(save) {
   // Derived, and cheap to rebuild — so recover it rather than versioning it.
   if (typeof state.world.clearedCount !== 'number') {
     state.world.clearedCount = Object.keys(state.world.cleared).length;
+  }
+
+  // Somebody who arrived before their kingdom had a forge still needs the
+  // slots to hang gear on, or every read of them is a crash waiting to happen.
+  for (const resident of state.residents) {
+    if (!resident.gear) {
+      resident.gear = { weapon: null, head: null, armor: null, shield: null, accessory: null };
+    }
+    if (!Array.isArray(resident.skills)) resident.skills = [];
   }
 
   return state;

@@ -14,6 +14,7 @@
 
 import { professionDef } from '../content/professions.js';
 import { statsOf } from './residents.js';
+import { effectsOf } from './skills.js';
 import { tileX, tileY } from './world.js';
 import { RAID } from '../content/monsters.js';
 import { facilityDef } from '../content/facilities.js';
@@ -67,13 +68,19 @@ export function musterStrength(defenders) {
 
   for (const entry of defenders) {
     const { stats, commitment } = entry;
-    attack += stats.atk * commitment;
+    // Skills sharpen what somebody brings, on top of the stats they already
+    // carry. Gear needs no line here: it is already inside `stats`.
+    const effects = entry.resident ? effectsOf(entry.resident) : {};
+
+    attack += stats.atk * commitment * (1 + (effects.attackMultiplier ?? 0));
     // Magic ignores armour and scales with INT (research).
-    magic += stats.int * commitment * (entry.profession.id === 'mage' ? 1 : 0.15);
-    guard += stats.def * commitment;
-    speed += stats.spd * commitment;
+    magic += stats.int * commitment
+      * (entry.profession.id === 'mage' ? 1 : 0.15)
+      * (1 + (effects.magicMultiplier ?? 0));
+    guard += stats.def * commitment * (1 + (effects.guardMultiplier ?? 0));
+    speed += stats.spd * commitment * (1 + (effects.speedMultiplier ?? 0));
     luck += stats.luck * commitment;
-    count += commitment;
+    count += commitment * (1 + (effects.musterBonus ?? 0));
   }
 
   return {

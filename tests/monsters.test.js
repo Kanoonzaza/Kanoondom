@@ -1,6 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { newGame, deserialize, dayNumber, isFullMoon } from '../src/state.js';
+import {
+  newGame, deserialize, dayNumber, isFullMoon, SCHEMA_VERSION,
+} from '../src/state.js';
 import {
   nestSites, activeNests, knownNests, isNestCleared, threatRate, wardStrength,
   pressingNests, distanceToKingdom, monsterStrength, threatFraction, threatLabel,
@@ -524,7 +526,7 @@ test('a schema 2 save gains the monster fields without losing anything', () => {
 
   const restored = deserialize(JSON.stringify(state));
 
-  assert.equal(restored.schemaVersion, 3);
+  assert.equal(restored.schemaVersion, SCHEMA_VERSION, 'migrated all the way forward');
   assert.deepEqual(restored.world.nestsCleared, {});
   assert.equal(restored.threat, 0);
   assert.equal(restored.caves.visits, 0);

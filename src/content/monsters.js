@@ -200,9 +200,9 @@ export const CAVE = {
   /** How long a cave stays open once the moon has raised it, in days. */
   openDays: 3,
   /** Treasure scales with the depth you have earned. */
-  rewardPerTier: { copper: 260, ore: 90, mysticOre: 12, sample: 1 },
+  rewardPerTier: { copper: 260, bronze: 150, ore: 90, mysticOre: 12, sample: 1 },
   /** Every cave gives at least this, win or lose — nobody comes back empty. */
-  consolation: { copper: 60 },
+  consolation: { copper: 60, bronze: 30 },
 };
 
 /** The band a cave puts in front of you, given the kingdom's reach. */

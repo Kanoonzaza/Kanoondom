@@ -21,6 +21,7 @@
 export const RESEARCH_SECTIONS = [
   { id: 'facilities', name: 'Facilities', blurb: 'New things to build, and more of what you have.' },
   { id: 'charters', name: 'Charters', blurb: 'The right to found another town.' },
+  { id: 'equipment', name: 'Equipment', blurb: 'Patterns your Master Smithy can forge. This is what Samples are for.' },
 ];
 
 export const RESEARCH = {
@@ -178,6 +179,90 @@ export const RESEARCH = {
   },
 
   // --- rank 8 -------------------------------------------------------------
+  // --- equipment ----------------------------------------------------------
+  // Samples exist to gate exactly this. A pattern, once studied, can be forged
+  // as many times as you have materials for -- the study buys the knowledge,
+  // not the object.
+  smithing: {
+    id: 'smithing', name: 'Smithing', section: 'equipment', rank: 3,
+    cost: { ore: 120, wood: 80, tome: 4 },
+    study: 460,
+    grants: {
+      unlock: ['master_smithy'],
+      stock: { master_smithy: 1 },
+      patterns: ['bronze_sword', 'padded_coat', 'cloth_cap', 'plank_shield', 'straw_charm'],
+    },
+    blurb: 'A forge, and the five plainest patterns. Cheap gear levelled far outfights grand gear left alone.',
+  },
+  bowyery: {
+    id: 'bowyery', name: 'Bowyery', section: 'equipment', rank: 3,
+    requires: ['smithing'],
+    cost: { wood: 140, grass: 90, tome: 4, sample: 1 },
+    study: 480,
+    grants: { patterns: ['sling', 'short_bow', 'leather_hood'] },
+    blurb: 'Bows, for the people who would rather fight at a distance.',
+  },
+  wandcraft: {
+    id: 'wandcraft', name: 'Wandcraft', section: 'equipment', rank: 4,
+    requires: ['smithing'],
+    cost: { wood: 120, mysticOre: 20, tome: 6, sample: 1 },
+    study: 560,
+    grants: { patterns: ['wooden_stick', 'oak_staff'] },
+    blurb: 'A stick with intent. Magic ignores armour, which is what makes it worth studying.',
+  },
+  hardened_arms: {
+    id: 'hardened_arms', name: 'Hardened Arms', section: 'equipment', rank: 5,
+    requires: ['smithing'],
+    cost: { ore: 260, mysticOre: 18, tome: 7, sample: 2 },
+    study: 700,
+    grants: { patterns: ['copper_sword', 'leather_jerkin', 'buckler', 'copper_ring'] },
+    blurb: 'The second tier of everything, for a town that has started meeting real trouble.',
+  },
+  plate_and_mail: {
+    id: 'plate_and_mail', name: 'Plate and Mail', section: 'equipment', rank: 6,
+    requires: ['hardened_arms'],
+    cost: { ore: 420, mysticOre: 40, tome: 9, sample: 3 },
+    study: 880,
+    grants: { patterns: ['steel_sword', 'chain_mail', 'iron_helm', 'kite_shield', 'hunting_bow'] },
+    blurb: 'Armour that turns a claw, and the blades to go with it.',
+  },
+  runework: {
+    id: 'runework', name: 'Runework', section: 'equipment', rank: 6,
+    requires: ['wandcraft'],
+    cost: { mysticOre: 70, tome: 10, sample: 3 },
+    study: 900,
+    grants: { patterns: ['rune_staff', 'lucky_coin'] },
+    blurb: 'Nobody local can read the carvings. They work regardless.',
+  },
+  master_arms: {
+    id: 'master_arms', name: 'Master Arms', section: 'equipment', rank: 8,
+    requires: ['plate_and_mail'],
+    cost: { ore: 700, mysticOre: 90, tome: 14, sample: 5 },
+    study: 1300,
+    grants: {
+      patterns: ['knight_blade', 'plate_armor', 'great_helm', 'tower_shield', 'war_bow', 'gatherers_amulet'],
+    },
+    blurb: 'What a kingdom arms its best with.',
+  },
+  starcraft: {
+    id: 'starcraft', name: 'Starcraft', section: 'equipment', rank: 9,
+    requires: ['runework', 'master_arms'],
+    cost: { mysticOre: 200, tome: 18, sample: 7 },
+    study: 1700,
+    grants: {
+      patterns: ['sage_staff', 'star_staff', 'robe_of_stars', 'star_circlet', 'heart_stone', 'storm_bow', 'ice_scalpel'],
+    },
+    blurb: 'The far end of what anyone here has written down.',
+  },
+  legendary_arms: {
+    id: 'legendary_arms', name: 'Legendary Arms', section: 'equipment', rank: 12,
+    requires: ['starcraft'],
+    cost: { mysticOre: 400, ore: 1200, tome: 25, sample: 10 },
+    study: 2400,
+    grants: { patterns: ['blizzard_sword'] },
+    blurb: 'One pattern. The air around it never quite thaws.',
+  },
+
   manors: {
     id: 'manors', name: 'Manors', section: 'facilities', rank: 8,
     requires: ['estates'],

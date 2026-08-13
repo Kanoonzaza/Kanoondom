@@ -279,7 +279,7 @@ export function advanceResearch(state, ticks, report, power) {
  * you cannot see in the menu would be a bug the player experiences as one.
  */
 export function applyGrants(state, grants = {}) {
-  const granted = { unlocked: [], stock: {}, resources: {} };
+  const granted = { unlocked: [], stock: {}, resources: {}, patterns: [] };
 
   for (const facilityId of grants.unlock ?? []) {
     if (!state.research.unlocked.includes(facilityId)) {
@@ -300,6 +300,15 @@ export function applyGrants(state, grants = {}) {
   for (const [resource, amount] of Object.entries(grants.resources ?? {})) {
     state.resources[resource] = (state.resources[resource] ?? 0) + amount;
     granted.resources[resource] = (granted.resources[resource] ?? 0) + amount;
+  }
+
+  // Equipment patterns: knowing one lets the Master Smithy forge it as often
+  // as materials allow. The study buys the knowledge, never the object.
+  for (const patternId of grants.patterns ?? []) {
+    if (!state.equipmentKnown.includes(patternId)) {
+      state.equipmentKnown.push(patternId);
+      granted.patterns.push(patternId);
+    }
   }
 
   return granted;

@@ -21,6 +21,7 @@ import { createRng } from './rng.js';
 import { isActive } from './facilities.js';
 import { tileIndex, zoneOf, zoneRing, unlockedRing, markCleared } from './world.js';
 import { applyGrants, checkMapRewards } from './research.js';
+import { bestEffect } from './skills.js';
 
 /** The best Surveyor's Office you have standing, or null. */
 export function surveyOffice(state) {
@@ -47,7 +48,8 @@ export function surveyCost(state) {
 export function surveyReach(state) {
   const office = surveyOffice(state);
   if (!office) return 0;
-  return Math.round(SURVEY.tilesRevealed * effectScale(office.level));
+  const cartography = bestEffect(state, 'surveyBonus');
+  return Math.round(SURVEY.tilesRevealed * effectScale(office.level) * (1 + cartography));
 }
 
 /** Ticks until the surveyors are back and ready to go out again. */
