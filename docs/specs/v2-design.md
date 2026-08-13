@@ -268,6 +268,41 @@ battle is still something the player can learn to predict.
 
 Launch content: ~60 monsters.
 
+### V5 as built
+
+**Nests are derived from the seed**, exactly like terrain; the save records only
+which ones are cleared. A nest is a visible source of trouble you can go and
+remove, which is the whole reason to model them rather than count up a hidden
+timer.
+
+**Peace no longer counts nests.** An earlier draft had them subtract, and it
+cannot work: peace gates which rings are unlocked, so counting nests per
+unlocked ring makes `peaceLevel` call `unlockedRing`, which calls `peaceLevel`
+— straight recursion. Counting them world-wide instead pins peace near zero on
+a fresh map and locks it there. Nests drive **Threat**; peace stays
+exploration. Two numbers, each moving only the way the player pushes it.
+
+**The offline promise, made concrete.** Threat accrues every segment; raids
+resolve only when `offline` is false. That single asymmetry is the whole thing,
+and it is one branch in `stepThreat`. Threat away is held under a lower ceiling
+than live play allows, and returning grants a grace period so nobody is ever
+ambushed by opening the page.
+
+**Wards cap at 75%.** They multiply, so fifteen cheap torches took the leak to
+99.9%: the balance run found a late kingdom at 100% wards, zero threat and one
+raid in five hours. A defence you can max out with the cheapest building is an
+off switch, not a defence.
+
+**Difficulty follows the player.** Raid bands scale to the highest tier cleared,
+per the research's explicit rule. Without it the nests near home stay tier 1 and
+a kingdom with three knights can never lose a raid again — measured at 0 losses
+in 20 across every seed.
+
+**Losing costs buildings, never people**, and damaged buildings are repaired for
+a fraction of their cost. A raid should cost an errand, not a rebuild — and
+damage never evicts anyone, which is what made `freeBeds` go negative the first
+time a raid hit a house.
+
 ## 10. Eggs
 
 Following [creature-collection.md](../research/creature-collection.md).

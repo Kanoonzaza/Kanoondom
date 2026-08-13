@@ -296,21 +296,26 @@ export function unlockedTileCount(state) {
  * Peace Level, 0–100.
  *
  * Ours, not the real game's — it gates expansion there but never says what
- * feeds it. This version is the share of the WHOLE world you have brought to
- * light, less a penalty for every nest still standing.
+ * feeds it. This version is simply the share of the WHOLE world you have
+ * brought to light.
  *
  * Measuring against the whole world matters. An earlier version measured
  * against "land you can currently reach", which made a brand-new kingdom read
  * 60% simply for seeing its own back garden — and worse, earning a second town
  * hall would have ENLARGED the denominator and pushed the number down, so
  * progress would have looked like decline. Against a fixed world it only ever
- * climbs as you explore, and only nests hold it back.
+ * climbs as you explore.
+ *
+ * NESTS DELIBERATELY DO NOT COUNT HERE, though an earlier draft had them
+ * subtract. Peace gates which rings are unlocked, so counting only the nests in
+ * unlocked rings makes this function ask `unlockedRing`, which asks this
+ * function: straight recursion. Counting them world-wide instead pins peace
+ * near zero on a fresh map and locks it there, since the far country cannot be
+ * reached to clear anything. Nests drive Threat instead (sim/monsters.js) —
+ * two independent numbers, each moving only the way the player pushes it.
  */
 export function peaceLevel(state) {
-  const raw = (clearedTileCount(state) / TILE_COUNT) * 100;
-
-  const nests = Object.keys(state.world.nests).length;
-  return Math.max(PEACE.floor, Math.min(100, raw - nests * PEACE.penaltyPerNest));
+  return Math.max(PEACE.floor, Math.min(100, (clearedTileCount(state) / TILE_COUNT) * 100));
 }
 
 // ---------------------------------------------------------------------------
@@ -409,7 +414,6 @@ export function tileInfo(state, x, y) {
     cleared: isCleared(state, x, y),
     inTerritory: inTerritory(state, x, y),
     wasteland: wastelandAt(state, x, y),
-    nest: state.world.nests[tileIndex(x, y)] ?? null,
     facility: state.world.facilities[tileIndex(x, y)] ?? null,
   };
 }

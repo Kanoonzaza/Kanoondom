@@ -21,6 +21,7 @@ import {
 } from './economy.js';
 import { resolveArrivals, ticksToNextArrival, residentRates } from './residents.js';
 import { advanceResearch, studyPower } from './research.js';
+import { stepThreat } from './raids.js';
 
 /** A fresh record of everything that happened during an advance. */
 export function createReport() {
@@ -40,6 +41,7 @@ export function createReport() {
     battles: [],
     raids: [],
     raidWarnings: [],
+    threatGained: 0,
     milestones: [],
   };
 }
@@ -148,6 +150,10 @@ export function advanceTicks(state, ticks, options = {}) {
 
     completeConstruction(state, report);
 
+    // Threat gathers whether or not anybody is watching; raids resolve only
+    // when somebody is. That asymmetry IS the offline promise.
+    stepThreat(state, step, report, offline);
+
     if (state.time.totalTicks % DAY.ticksPerDay === 0) {
       // People arrive with the morning, if there is a bed for them.
       resolveArrivals(state, report);
@@ -178,6 +184,7 @@ export function mergeReports(a, b) {
   a.seasonsElapsed += b.seasonsElapsed;
   a.daysElapsed += b.daysElapsed;
   a.fullMoons += b.fullMoons;
+  a.threatGained = (a.threatGained ?? 0) + (b.threatGained ?? 0);
 
   for (const key of Object.keys(b.gained)) {
     a.gained[key] = (a.gained[key] ?? 0) + b.gained[key];

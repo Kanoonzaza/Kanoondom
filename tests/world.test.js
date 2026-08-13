@@ -265,20 +265,27 @@ test('clearing fog raises Peace Level', () => {
   assert.ok(peaceLevel(state) > before);
 });
 
-test('nests hold Peace Level down', () => {
+test('nests do NOT drag Peace Level down', () => {
+  // They used to, and it could not work. Peace gates which rings are unlocked,
+  // so counting only the nests in unlocked rings would make peaceLevel ask
+  // unlockedRing, which asks peaceLevel: straight recursion. Counting nests
+  // across the whole world instead pins peace near zero on a fresh map and
+  // locks it there forever, since the far country cannot be reached to clear
+  // anything.
+  //
+  // So Peace is exploration, full stop, and nests drive Threat instead
+  // (sim/monsters.js). Two independent numbers, each of which only moves the
+  // way the player pushes it.
   const state = newGame(1, { now: 0 });
   clearTerritoryFog(state);
   const peaceful = peaceLevel(state);
 
-  state.world.nests[tileIndex(50, 50)] = { tier: 1 };
-  state.world.nests[tileIndex(52, 50)] = { tier: 1 };
-
-  assert.equal(peaceLevel(state), Math.max(PEACE.floor, peaceful - 2 * PEACE.penaltyPerNest));
+  state.world.nestsCleared = {};
+  assert.equal(peaceLevel(state), peaceful);
 });
 
 test('Peace Level stays inside 0..100', () => {
   const state = newGame(1, { now: 0 });
-  for (let i = 0; i < 40; i++) state.world.nests[i] = { tier: 1 };
   assert.ok(peaceLevel(state) >= 0);
 
   const full = newGame(1, { now: 0 });
@@ -387,6 +394,5 @@ test('tileInfo gathers everything the UI needs', () => {
   assert.equal(info.cleared, true);
   assert.equal(info.inTerritory, true);
   assert.equal(info.wasteland, 0);
-  assert.equal(info.nest, null);
   assert.ok(BIOMES[info.biome], 'biome must be a real one');
 });

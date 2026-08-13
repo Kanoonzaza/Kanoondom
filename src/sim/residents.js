@@ -17,7 +17,7 @@ import { STUDY } from '../content/research.js';
 import { createRng, deriveSeed, SEED_SALT } from './rng.js';
 import { takeId, dayNumber } from '../state.js';
 import { tileX, tileY, isCleared } from './world.js';
-import { isActive } from './facilities.js';
+import { isActive, isStanding } from './facilities.js';
 import { auraAt } from './aura.js';
 
 const FIRST_NAMES = [
@@ -36,7 +36,8 @@ export function homes(state) {
   const list = [];
   for (const [origin, facility] of Object.entries(state.world.facilities)) {
     const def = facilityDef(facility.id);
-    if (!def.housing || !isActive(facility)) continue;
+    // Standing, not active: a damaged house still shelters the people in it.
+    if (!def.housing || !isStanding(facility)) continue;
 
     const index = Number(origin);
     const occupants = state.residents.filter((resident) => resident.home === index);
@@ -59,7 +60,7 @@ export function totalBeds(state) {
   let beds = 0;
   for (const facility of Object.values(state.world.facilities)) {
     const def = facilityDef(facility.id);
-    if (def.housing && isActive(facility)) beds += def.housing.beds;
+    if (def.housing && isStanding(facility)) beds += def.housing.beds;
   }
   return beds;
 }

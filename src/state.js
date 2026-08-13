@@ -14,7 +14,7 @@ import {
   TICKS_PER_SEASON, SEASONS_PER_YEAR, SEASON_NAMES, DAY, WORLD_TILES_X,
 } from './content/config.js';
 
-export const SCHEMA_VERSION = 2;
+export const SCHEMA_VERSION = 3;
 export const STORAGE_KEY = 'kingdom-sim-v2/save';
 
 export function newGame(seed = Math.floor(Math.random() * 0xffffffff), options = {}) {
@@ -50,6 +50,9 @@ export function newGame(seed = Math.floor(Math.random() * 0xffffffff), options =
      */
     world: {
       cleared: {},
+      /** Nest sites the player has cleared. Where nests STAND is derived from
+       *  the seed (sim/monsters.js), so only the clearing needs storing. */
+      nestsCleared: {},
       /**
        * How many tiles `cleared` holds. Maintained rather than counted, so
        * Peace Level is O(1) — it sits under `isZoneUnlocked`, which placement
@@ -57,7 +60,6 @@ export function newGame(seed = Math.floor(Math.random() * 0xffffffff), options =
        */
       clearedCount: 0,
       wasteland: {},
-      nests: {},
       /** Facility records, keyed by their ORIGIN (top-left) tile. */
       facilities: {},
       /**
@@ -105,6 +107,18 @@ export function newGame(seed = Math.floor(Math.random() * 0xffffffff), options =
 
     surveys: { done: 0, lastFindId: null, readyAtTick: 0 },
 
+    /**
+     * How badly the monsters want a word with you, 0 upward.
+     *
+     * Gathers while the player is away — the nests do not wait — but under a
+     * lower ceiling, and nothing ever resolves offline. See sim/raids.js.
+     */
+    threat: 0,
+    /** No raid may fire before this tick. Set on returning from an absence. */
+    graceUntilTick: 0,
+
+    caves: { visits: 0, enteredMoon: -1 },
+
     residents: [],
     parties: [],
     /** Guards against two arrivals landing on the same day. */
@@ -117,6 +131,8 @@ export function newGame(seed = Math.floor(Math.random() * 0xffffffff), options =
 
     stats: {
       nestsCleared: 0,
+      /** Difficulty follows the player, so this is what it follows. */
+      highestTierCleared: 1,
       tilesCleared: 0,
       raidsSuffered: 0,
       facilitiesBuilt: 0,
@@ -242,6 +258,19 @@ export function migrate(save) {
     };
     state.surveys = { done: 0, lastFindId: null, readyAtTick: 0 };
     state.schemaVersion = 2;
+  }
+
+  // 2 -> 3: monsters, nests and the threat they put on the kingdom.
+  if (state.schemaVersion < 3) {
+    state.world.nestsCleared = {};
+    // Nest POSITIONS are derived from the seed now, so the old table is dead
+    // weight in every save that has one.
+    delete state.world.nests;
+    state.threat = 0;
+    state.graceUntilTick = 0;
+    state.caves = { visits: 0, enteredMoon: -1 };
+    state.stats.highestTierCleared = 1;
+    state.schemaVersion = 3;
   }
 
   // Resources and facilities are added between versions more often than the

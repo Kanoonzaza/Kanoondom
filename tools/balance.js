@@ -34,6 +34,9 @@ import {
   developmentPoints, promotionRequirement,
 } from '../src/sim/research.js';
 import { canSurvey, runSurvey, surveyOffice } from '../src/sim/survey.js';
+import { clearNest, graceRemaining, expeditionForecast } from '../src/sim/raids.js';
+import { knownNests, activeNests, threatRate, wardStrength } from '../src/sim/monsters.js';
+import { THREAT } from '../src/content/monsters.js';
 import { RESOURCE_IDS, RESOURCES } from '../src/content/resources.js';
 import { TICKS_PER_SEASON, DAY } from '../src/content/config.js';
 
@@ -151,6 +154,23 @@ function takeTurn(state) {
   // Surveys, whenever they are affordable. Land is the bottleneck.
   if (canSurvey(state).ok) runSurvey(state);
 
+  // Deal with the nests you can see, nearest first, but only when the odds
+  // look survivable — an ordinary player does not march on a Drago with two
+  // farmers.
+  for (const nest of knownNests(state)) {
+    const forecast = expeditionForecast(state, nest);
+    const ours = forecast.ours.attack + forecast.ours.magic;
+    const theirs = forecast.theirs.attack + forecast.theirs.magic;
+    if (ours > theirs * 1.2) { clearNest(state, nest); break; }
+  }
+
+  // Something to hold the dark back, if threat is building.
+  if ((state.threat ?? 0) > THREAT.raidThreshold * 0.4) {
+    for (const id of ['watchtower', 'torch']) {
+      if (stockOf(state, id) > 0 && tryBuild(state, id)) break;
+    }
+  }
+
   // Found a second town hall the moment a charter allows it. Far enough out
   // that the two do not waste each other's reach.
   if (stockOf(state, 'town_hall') > 0) tryBuild(state, 'town_hall');
@@ -205,6 +225,7 @@ function runPromise(seed) {
     now += away * 1000;
     const welcome = catchUp(state, now);
 
+    const damagedBefore = Object.values(state.world.facilities).filter((f) => f.damaged).length;
     const poorer = RESOURCE_IDS.filter((id) => state.resources[id] < before[id] - 1e-9);
     check(
       poorer.length === 0,
@@ -222,6 +243,13 @@ function runPromise(seed) {
       `${label} away un-learns nothing`
     );
     check((welcome?.raids ?? []).length === 0, `${label} away suffers no raids`);
+    check(
+      Object.values(state.world.facilities).filter((f) => f.damaged).length === damagedBefore,
+      `${label} away wrecks nothing`
+    );
+    check(graceRemaining(state) > 0, `${label} away is followed by a period of quiet`);
+    log(`        threat now ${Math.round(state.threat ?? 0)}`
+      + ` (offline ceiling ${THREAT.offlineCeiling})`);
 
     const gained = RESOURCE_IDS
       .filter((id) => (welcome?.gained[id] ?? 0) >= 1)
@@ -311,6 +339,27 @@ function runPace(seed) {
     peaceLevel(state) < 95,
     'has not consumed the whole world already',
     `peace ${peaceLevel(state).toFixed(1)}%`
+  );
+
+  log(`        raids suffered ${state.stats.raidsSuffered}`
+    + ` · nests cleared ${state.stats.nestsCleared}`
+    + ` · ${activeNests(state).length} still standing`
+    + ` · threat ${Math.round(state.threat ?? 0)}`
+    + ` · wards ${Math.round(wardStrength(state) * 100)}%`);
+
+  // A kingdom that is raided constantly is not a kingdom anybody wants to come
+  // back to, and one that is never raided has no reason to build a watchtower.
+  check(
+    state.stats.raidsSuffered <= 40,
+    'is not under constant attack',
+    `${state.stats.raidsSuffered} raids in 30 sessions`
+  );
+
+  const wrecked = Object.values(state.world.facilities).filter((f) => f.damaged).length;
+  check(
+    wrecked <= Object.keys(state.world.facilities).length * 0.4,
+    'is not left in ruins',
+    `${wrecked} of ${Object.keys(state.world.facilities).length} damaged`
   );
 
   // KNOWN, and not a failure yet: with every study done and every facility

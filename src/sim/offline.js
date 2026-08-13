@@ -14,6 +14,7 @@
 import { advanceTicks } from './tick.js';
 import { OFFLINE } from '../content/config.js';
 import { RESOURCE_IDS } from '../content/resources.js';
+import { grantGrace } from './raids.js';
 
 /**
  * Bring a loaded save up to the present.
@@ -37,6 +38,11 @@ export function catchUp(state, now = Date.now()) {
   const simulated = Math.min(elapsedSeconds, OFFLINE.maxSimulatedSeconds);
   const report = advanceTicks(state, simulated, { offline: true });
 
+  // Nothing may attack for a little while after somebody comes back. Being
+  // ambushed by the act of opening the page is exactly the punishment this
+  // whole design exists to avoid.
+  grantGrace(state);
+
   if (elapsedSeconds < OFFLINE.minSecondsForReport) return null;
 
   const filledSecondsAgo = {};
@@ -57,6 +63,9 @@ export function catchUp(state, now = Date.now()) {
     resourcesBefore,
     completed: report.completed,
     upgraded: report.upgraded,
+    threat: state.threat ?? 0,
+    threatGained: report.threatGained ?? 0,
+    raidWarnings: report.raidWarnings,
     // A study left running is finished when you get back. That is the whole
     // pillar applied to progression rather than only to stores.
     research: report.research,

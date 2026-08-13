@@ -12,7 +12,7 @@ import {
   peaceLevel, unlockedRing, nextGate, monarchRank, hallRadius,
   clearTerritoryFog, territoryTiles, zoneLabel, zoneOf,
 } from './sim/world.js';
-import { el, mount, short } from './ui/dom.js';
+import { el, mount, short, duration } from './ui/dom.js';
 import { createMapView, tileSheet, buildSheet, centreOn, mapMode } from './ui/map.js';
 import { openSheet, closeSheet, toast } from './ui/panels.js';
 import { renderPeople, residentSheet } from './ui/people.js';
@@ -21,11 +21,14 @@ import {
   startResearch, cancelResearch, promote, checkMapRewards, townRank,
 } from './sim/research.js';
 import { runSurvey } from './sim/survey.js';
+import { renderWatch, battleSheet } from './ui/watch.js';
+import { clearNest, enterCave, graceRemaining } from './sim/raids.js';
+import { nestSites, threatLabel } from './sim/monsters.js';
 import { rehouse, freeBeds, totalBeds } from './sim/residents.js';
 import { professionDef } from './content/professions.js';
 import { TICKS_PER_SEASON, SPEEDS, ZONE_UNLOCKS } from './content/config.js';
 import { catchUp } from './sim/offline.js';
-import { place, remove, upgrade, palette, allFacilities } from './sim/facilities.js';
+import { place, remove, upgrade, repair, palette, allFacilities } from './sim/facilities.js';
 import { productionRates, storageCapacity, fullStores } from './sim/economy.js';
 import { RESOURCES, RESOURCE_IDS } from './content/resources.js';
 import { facilityDef } from './content/facilities.js';
@@ -89,6 +92,20 @@ function boot() {
       kind: spilled.length > 0 ? 'warn' : 'good',
       ms: 12000,
     });
+    if ((welcome.raidWarnings ?? []).length > 0) {
+      toast({
+        title: '⚔️ They gathered while you were away',
+        rows: [
+          ['', 'Nothing attacked. Nothing ever does while you are gone.', 'pos'],
+          ['Threat', `${Math.round(welcome.threat)}`, 'neg'],
+          ['Quiet for', duration(graceRemaining(state))],
+        ],
+        kind: 'warn',
+        ms: 12000,
+        onTap: () => { view.screen = 'watch'; markDirty(); },
+      });
+    }
+
     for (const study of welcome.research ?? []) {
       toast({
         title: `📜 ${study.name}`,
@@ -194,6 +211,25 @@ function handleReport(report) {
       ],
       kind: 'good',
       ms: 9000,
+    });
+    markDirty();
+  }
+
+  for (const raid of report.raids) {
+    toast({
+      title: raid.won
+        ? `${raid.fullMoon ? '🌕 ' : ''}Raid driven off`
+        : `${raid.fullMoon ? '🌕 ' : ''}They got through`,
+      rows: [
+        ['', raid.band.map((monster) => monster.icon).join(' ')],
+        ...(raid.wrecked.length > 0
+          ? [['Damaged', raid.wrecked.map((wreck) => wreck.name).join(', '), 'neg']]
+          : [['', 'Nothing was lost', 'pos']]),
+        ['', 'Tap to see how it went'],
+      ],
+      kind: raid.won ? 'good' : 'bad',
+      ms: 12000,
+      onTap: () => openSheet(battleSheet(raid, closeSheet, { title: 'The raid' })),
     });
     markDirty();
   }
@@ -317,6 +353,8 @@ function renderScreen() {
     mount(host, renderPeople(state, peopleHandlers));
   } else if (view.screen === 'study') {
     mount(host, renderStudy(state, studyHandlers));
+  } else if (view.screen === 'watch') {
+    mount(host, renderWatch(state, watchHandlers));
   } else if (view.screen === 'realm') {
     mount(host, renderRealmSummary());
   } else {
@@ -495,6 +533,31 @@ function announceMapRewards(rewards = []) {
   }
 }
 
+const watchHandlers = {
+  onClearNest(index) {
+    const nest = nestSites(state).get(index);
+    const result = clearNest(state, nest);
+    if (!result.ok) {
+      toast({ title: 'Cannot go', rows: [['', result.reason]], kind: 'bad', ms: 3500 });
+      return;
+    }
+    openSheet(battleSheet(result, closeSheet, { title: 'The nest' }));
+    saveToStorage(state);
+    markDirty();
+  },
+
+  onEnterCave() {
+    const result = enterCave(state);
+    if (!result.ok) {
+      toast({ title: 'Cannot go in', rows: [['', result.reason]], kind: 'bad', ms: 3500 });
+      return;
+    }
+    openSheet(battleSheet(result, closeSheet, { title: 'The cave' }));
+    saveToStorage(state);
+    markDirty();
+  },
+};
+
 function openBuildSheet() {
   openSheet(buildSheet(state, palette(state), {
     onPick: (facilityId) => {
@@ -544,7 +607,9 @@ function placeHere(x, y) {
 }
 
 function onTileAction(action, x, y) {
-  const result = action === 'upgrade' ? upgrade(state, x, y) : remove(state, x, y);
+  const result = action === 'upgrade' ? upgrade(state, x, y)
+    : action === 'repair' ? repair(state, x, y)
+    : remove(state, x, y);
   if (!result.ok) {
     toast({ title: 'Cannot do that', rows: [['', result.reason]], kind: 'bad', ms: 3000 });
     return;
@@ -626,6 +691,7 @@ const TABS = [
   { id: 'world', icon: '🗺️', label: 'World' },
   { id: 'people', icon: '👥', label: 'People' },
   { id: 'study', icon: '📜', label: 'Study' },
+  { id: 'watch', icon: '⚔️', label: 'Watch' },
   { id: 'realm', icon: '🏰', label: 'Realm' },
 ];
 

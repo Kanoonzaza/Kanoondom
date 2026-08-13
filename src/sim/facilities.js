@@ -15,6 +15,7 @@ import {
 import { BIOMES } from '../content/biomes.js';
 import { RESOURCE_IDS } from '../content/resources.js';
 import { TOWN_HALL } from '../content/config.js';
+import { RAID } from '../content/monsters.js';
 import { takeId } from '../state.js';
 import {
   tileIndex, tileX, tileY, inBounds, biomeAt, inTerritory, isCleared, isZoneUnlocked, zoneOf,
@@ -309,12 +310,66 @@ export function upgrade(state, x, y) {
 }
 
 // ---------------------------------------------------------------------------
+// Repair
+// ---------------------------------------------------------------------------
+
+/**
+ * Put a wrecked building back to work.
+ *
+ * Cheap on purpose. A raid should cost you an errand and some materials, not a
+ * rebuild — and without this a damaged facility would be stuck damaged for
+ * ever, since `canUpgrade` refuses to touch one and only removal cleared it.
+ */
+export function repairCostFor(facilityId) {
+  const def = facilityDef(facilityId);
+  const cost = {};
+  for (const [resource, amount] of Object.entries(def.cost)) {
+    const part = Math.ceil(amount * RAID.repairFraction);
+    if (part > 0) cost[resource] = part;
+  }
+  return cost;
+}
+
+export function canRepair(state, x, y) {
+  const found = facilityAt(state, x, y);
+  if (!found) return { ok: false, reason: 'Nothing there', cost: null };
+  if (!found.damaged) return { ok: false, reason: 'Nothing wrong with it', cost: null };
+
+  const cost = repairCostFor(found.id);
+  if (!canAfford(state, cost)) return { ok: false, reason: 'Not enough materials', cost };
+  return { ok: true, reason: null, cost };
+}
+
+export function repair(state, x, y) {
+  const check = canRepair(state, x, y);
+  if (!check.ok) return check;
+
+  const found = facilityAt(state, x, y);
+  spend(state, check.cost);
+  state.world.facilities[found.origin].damaged = false;
+  return check;
+}
+
+// ---------------------------------------------------------------------------
 // What a placed facility is worth
 // ---------------------------------------------------------------------------
 
 /** A facility only does its job when finished, undamaged, and switched on. */
 export function isActive(facility) {
   return !!facility && facility.built && !facility.damaged && !facility.disabled;
+}
+
+/**
+ * Finished and not switched off — but possibly damaged.
+ *
+ * The distinction matters for HOUSING. A raid that wrecks a roof stops the shop
+ * beneath it from trading, but it does not throw the family into the street:
+ * they live there while it is repaired. Treating damage as eviction made
+ * `freeBeds` go NEGATIVE the first time a raid hit a plot, because the beds
+ * vanished while the people in them did not.
+ */
+export function isStanding(facility) {
+  return !!facility && facility.built && !facility.disabled;
 }
 
 /** Output multiplier from the ground beneath it, plus its level. */

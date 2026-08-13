@@ -13,7 +13,10 @@ import { BIOMES } from '../content/biomes.js';
 import {
   FACILITIES, facilityDef, FACILITY_CATEGORIES, CATEGORY_LABELS,
 } from '../content/facilities.js';
-import { facilityAt, canPlace, footprintTiles } from '../sim/facilities.js';
+import { facilityAt, canPlace, footprintTiles, repairCostFor } from '../sim/facilities.js';
+import { knownNests } from '../sim/monsters.js';
+import { RESOURCES } from '../content/resources.js';
+import { monsterDef } from '../content/monsters.js';
 import { auraSources } from '../sim/aura.js';
 import { WORLD, WORLD_TILES_X, WORLD_TILES_Y } from '../content/config.js';
 
@@ -213,6 +216,32 @@ export function drawMap(canvas, state) {
     // facility standing on real tiles, not a marker.
   }
 
+  // --- nests: only the ones the player has actually laid eyes on ---
+  // Drawn after territory so a nest inside your borders is unmissable, which
+  // is exactly the one you most need to do something about.
+  for (const nest of knownNests(state)) {
+    const cx = screenX(nest.x + 0.5);
+    const cy = screenY(nest.y + 0.5);
+    if (cx < -20 || cy < -20 || cx > cssWidth + 20 || cy > cssHeight + 20) continue;
+
+    const radius = Math.max(3, size * 0.42);
+    ctx.beginPath();
+    ctx.arc(cx, cy, radius, 0, Math.PI * 2);
+    ctx.fillStyle = 'rgba(24,10,10,0.85)';
+    ctx.fill();
+    ctx.strokeStyle = '#c65f3f';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+
+    if (size >= 9) {
+      ctx.font = `${Math.round(size * 0.6)}px system-ui, sans-serif`;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(monsterDef(nest.speciesId).icon, cx, cy + 1);
+      ctx.textAlign = 'start';
+    }
+  }
+
   // --- zone labels, once tiles are big enough to read them ---
   if (size >= 6) {
     ctx.fillStyle = 'rgba(233,227,213,0.35)';
@@ -403,9 +432,21 @@ export function tileSheet(state, x, y, onClose, onAction) {
                 el('b', { text: `${Math.ceil(standing.buildTicksRemaining)}s` }),
               ])
             : null,
+          standing.damaged
+            ? el('div.kv', {}, [
+                el('span', { class: 'neg', text: 'Damaged' }),
+                el('b', { class: 'neg', text: 'not working until repaired' }),
+              ])
+            : null,
           el('div.pi-note', { text: facilityDef(standing.id).blurb }),
           el('div.btn-row', {}, [
-            el('button.btn', { text: 'Upgrade', on: { click: () => onAction?.('upgrade', x, y) } }),
+            standing.damaged
+              ? el('button.btn.btn-primary', {
+                  text: `Repair (${Object.entries(repairCostFor(standing.id))
+                    .map(([id, amount]) => `${RESOURCES[id].icon} ${amount}`).join(' ')})`,
+                  on: { click: () => onAction?.('repair', x, y) },
+                })
+              : el('button.btn', { text: 'Upgrade', on: { click: () => onAction?.('upgrade', x, y) } }),
             el('button.btn.btn-danger', { text: 'Remove', on: { click: () => onAction?.('remove', x, y) } }),
           ]),
         ])

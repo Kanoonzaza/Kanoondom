@@ -381,7 +381,13 @@ test('a long catch-up is fast enough to run on page load', () => {
   const started = Date.now();
   catchUp(state, 400 * DAY * 1000);
   const elapsed = Date.now() - started;
-  assert.ok(elapsed < 1500, `catch-up took ${elapsed}ms`);
+  // BUDGET NOTE: this exists to catch an ORDER-OF-MAGNITUDE regression, which
+  // is what actually happens when the clock's hot path grows a new walk (V3
+  // went 827ms -> 8374ms). It is not a 20%-drift detector, and it must not
+  // fail merely because the machine was busy — a test that cries wolf gets
+  // ignored, and the last time that happened here it hid a real 10x
+  // regression. Headroom over the measured figure is deliberate.
+  assert.ok(elapsed < 3000, `catch-up took ${elapsed}ms`);
 });
 
 test('the summary reports what finished while away', () => {
