@@ -22,6 +22,7 @@ export const RESEARCH_SECTIONS = [
   { id: 'facilities', name: 'Facilities', blurb: 'New things to build, and more of what you have.' },
   { id: 'charters', name: 'Charters', blurb: 'The right to found another town.' },
   { id: 'equipment', name: 'Equipment', blurb: 'Patterns your Master Smithy can forge. This is what Samples are for.' },
+  { id: 'creatures', name: 'Creatures', blurb: 'Places to raise what the shining monsters leave behind.' },
 ];
 
 export const RESEARCH = {
@@ -261,6 +262,23 @@ export const RESEARCH = {
     study: 2400,
     grants: { patterns: ['blizzard_sword'] },
     blurb: 'One pattern. The air around it never quite thaws.',
+  },
+
+  // --- creatures ----------------------------------------------------------
+  beast_lore: {
+    id: 'beast_lore', name: 'Beast Lore', section: 'creatures', rank: 4,
+    cost: { grass: 140, wood: 120, tome: 6, sample: 1 },
+    study: 620,
+    grants: { unlock: ['monster_stable'], stock: { monster_stable: 1 } },
+    blurb: 'A stable, and the sense not to be eaten by what you raise in it. Defenders.',
+  },
+  companionship: {
+    id: 'companionship', name: 'Companionship', section: 'creatures', rank: 6,
+    requires: ['beast_lore'],
+    cost: { grass: 180, wood: 150, tome: 9, sample: 2 },
+    study: 820,
+    grants: { unlock: ['monster_room'], stock: { monster_room: 1 } },
+    blurb: 'A room of their own, for the ones that go out with your people instead.',
   },
 
   manors: {

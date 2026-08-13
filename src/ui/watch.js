@@ -8,6 +8,7 @@ import {
 import {
   graceRemaining, expeditionForecast, canRaidNest, openCave, canEnterCave,
 } from '../sim/raids.js';
+import { eggsCard } from './eggs.js';
 import { monsterDef } from '../content/monsters.js';
 import { THREAT, CAVE, NESTS } from '../content/monsters.js';
 import { RESOURCES } from '../content/resources.js';
@@ -25,6 +26,7 @@ export function renderWatch(state, handlers) {
 
     threatCard(state),
     caveCard(state, handlers),
+    eggsCard(state, handlers),
     ...knownNests(state)
       .sort((a, b) => distanceToKingdom(state, a) - distanceToKingdom(state, b))
       .map((nest) => nestCard(state, nest, handlers)),

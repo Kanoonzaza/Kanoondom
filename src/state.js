@@ -14,7 +14,7 @@ import {
   TICKS_PER_SEASON, SEASONS_PER_YEAR, SEASON_NAMES, DAY, WORLD_TILES_X,
 } from './content/config.js';
 
-export const SCHEMA_VERSION = 4;
+export const SCHEMA_VERSION = 5;
 export const STORAGE_KEY = 'kingdom-sim-v2/save';
 
 export function newGame(seed = Math.floor(Math.random() * 0xffffffff), options = {}) {
@@ -130,6 +130,14 @@ export function newGame(seed = Math.floor(Math.random() * 0xffffffff), options =
     equipment: {},
     /** Equipment patterns research has taught the Master Smithy. */
     equipmentKnown: [],
+
+    /**
+     * Eggs waiting, and eggs incubating (research: creature-collection.md).
+     * An egg carries what it has been fed, which is what decides what hatches.
+     */
+    eggs: [],
+    /** Hatched monsters. `role` says whether they hold the town or go out. */
+    allies: [],
 
     residents: [],
     parties: [],
@@ -294,6 +302,13 @@ export function migrate(save) {
       resident.skills = [];
     }
     state.schemaVersion = 4;
+  }
+
+  // 4 -> 5: eggs and the creatures that come out of them.
+  if (state.schemaVersion < 5) {
+    state.eggs = [];
+    state.allies = [];
+    state.schemaVersion = 5;
   }
 
   // Resources and facilities are added between versions more often than the

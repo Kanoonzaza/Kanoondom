@@ -328,6 +328,33 @@ export const FACILITIES = {
     blurb: 'Forges gear, and raises what your people already carry. Levelling costs bronze.',
   },
 
+  monster_stable: {
+    id: 'monster_stable', name: 'Monster Stable', icon: '\u{1F3DA}\uFE0F', category: 'amenity',
+    size: { w: 3, h: 2 },
+    cost: { wood: 130, grass: 90, ore: 40 },
+    buildTicks: 110,
+    stock: 0,
+    locked: true,
+    aura: { radius: 3, stats: { def: 4, heart: 3 } },
+    /** Eggs raised here hatch into DEFENDERS of the town (research). */
+    incubates: 'stable',
+    incubatorSlots: 2,
+    blurb: 'Eggs raised here hatch into defenders. They hold the town whether or not you are watching.',
+  },
+  monster_room: {
+    id: 'monster_room', name: 'Monster Room', icon: '\u{1F6AA}', category: 'amenity',
+    size: { w: 2, h: 2 },
+    cost: { wood: 110, grass: 70, ore: 30 },
+    buildTicks: 95,
+    stock: 0,
+    locked: true,
+    aura: { radius: 3, stats: { atk: 4, heart: 3 } },
+    /** Eggs raised here hatch into COMPANIONS for nests and caves (research). */
+    incubates: 'room',
+    incubatorSlots: 2,
+    blurb: 'Eggs raised here hatch into companions, and go out with your people.',
+  },
+
   // --- Materials: high-grade storage ---------------------------------------
   // The research-gated tier. Storage is the only cap on what accumulates while
   // you are away, so these are the most valuable things research can give you.

@@ -322,6 +322,32 @@ Eight colour lines. Launch content: ~20 hatchable creatures.
 **Monster Fusion Lab** is undocumented in every source; if built, the design is
 entirely ours. Deferred past launch.
 
+### How eggs stay safe for offline play (V8)
+
+The system splits cleanly along the offline seam, and that split is the design:
+
+| Step | When | Random? |
+|---|---|---|
+| An egg **drops** | live combat only | yes — but the player is present |
+| An egg **incubates** | on the clock, online or off | no |
+| An egg **hatches into** something | at a segment boundary | **no — pure function of the egg** |
+
+So the only dice are rolled while somebody is watching, and what a creature
+turns out to be is decided by the feeding, which was the player's decision.
+Coming back to a hatched monster is a gift; coming back to a *random* monster
+would be a slot machine.
+
+A hatched ally fights and does nothing else — it changes no production rate —
+so hatching needs no segment boundary of its own, only a report at one. That is
+the same reasoning that lets equipment experience bank offline, and the opposite
+of resident levels, which do change rates and so do get a boundary.
+
+**The overfeed trap** is reproduced exactly as the research describes: bands are
+Low / Medium / High / **Over**, and Over throws the hatch back to Low. It is the
+whole mechanic — it makes feeding a window to hit rather than a slider to max —
+and the UI shows the edge *before* the player crosses it, because a punishment
+you could not see coming reads as the game cheating.
+
 ## 11. Time
 
 - **Tick** = 1 real second. **Season** = 300 ticks (5 minutes). Four seasons a

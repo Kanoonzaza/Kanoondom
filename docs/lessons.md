@@ -122,14 +122,26 @@ it. Neither is for hiding.
 
 ---
 
-## 9. Content lists that a category can silently fall out of
+## 9. Hard-coded lists that must be appended to, and are not
 
-The build palette iterated a hard-coded `['environment','materials']`, so the
-entire Housing category vanished from the menu the moment it was added.
+Four times now, in two places:
 
-**Rule.** UI iterates the content module's own list (`FACILITY_CATEGORIES`,
-`RESEARCH_SECTIONS`, `SKILL_FAMILIES`), never a copy. Tests assert every locked
-facility is reachable through some study, and every item through some pattern.
+- The build palette iterated `['environment','materials']`, so the entire
+  Housing category vanished from the menu the moment it was added.
+- The balance bot's "build the thing research just gave you" list named
+  `surveyor_office`, then needed `master_smithy` (V6), then both incubators
+  (V8). Each time it was forgotten, the run reported the new feature as dead —
+  a Surveyor's Office, a forge, and then two stables, all sitting unbuilt in
+  the bot's pocket while the numbers said the system did nothing.
+
+The failure is silent every time, and it always looks like a broken feature
+rather than a stale list.
+
+**Rule.** Derive the list from the content. UI iterates the content module's own
+export (`FACILITY_CATEGORIES`, `RESEARCH_SECTIONS`, `SKILL_FAMILIES`); the bot
+builds *anything* `locked` it holds stock of and has not placed, whatever that
+turns out to be. Tests assert every locked facility is reachable through some
+study, every item through some pattern, and every colour hatches something.
 
 ---
 

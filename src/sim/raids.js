@@ -22,6 +22,7 @@
 import { THREAT, RAID, NESTS, CAVE, caveTierFor } from '../content/monsters.js';
 import { DAY } from '../content/config.js';
 import { createRng } from './rng.js';
+import { allyEntries, maybeDropEgg } from './creatures.js';
 import { isFullMoon, dayPeriod, dayNumber } from '../state.js';
 import {
   activeNests, monsterStrength, threatRate, distanceToKingdom, highestTierCleared,
@@ -136,7 +137,9 @@ export function resolveRaid(state, report) {
   }
 
   const hall = state.townHalls[0];
-  const defenders = defendersOf(state, hall.x, hall.y);
+  // Stabled monsters hold the town alongside its people — the research is
+  // explicit that allies join automatically rather than waiting to be sent.
+  const defenders = [...defendersOf(state, hall.x, hall.y), ...allyEntries(state, 'stable')];
   const outcome = resolveBattle(state, {
     ours: musterStrength(defenders),
     theirs: bandStrength(band),
@@ -214,7 +217,8 @@ export function stepThreat(state, ticks, report, offline) {
 
 /** Who would go, and what the odds look like, without committing to anything. */
 export function expeditionForecast(state, nest) {
-  const defenders = defendersOf(state, nest.x, nest.y, 999);
+  // Companions from the Monster Room go out; the stable stays home guarding it.
+  const defenders = [...defendersOf(state, nest.x, nest.y, 999), ...allyEntries(state, 'room')];
   const ours = musterStrength(defenders);
 
   const band = [];
@@ -279,6 +283,10 @@ export function clearNest(state, nest) {
     if (rng.next() < 0.35) reward.sample = 1;
     if (rng.next() < 0.5) reward.tome = 1 + Math.floor(nest.tier / 2);
 
+    // Sometimes one of them was shining, and shining ones leave eggs.
+    const egg = maybeDropEgg(state, rng, nest.tier);
+    if (egg) result.egg = egg;
+
     for (const [id, amount] of Object.entries(reward)) {
       state.resources[id] = (state.resources[id] ?? 0) + amount;
     }
@@ -334,7 +342,8 @@ export function enterCave(state) {
 
   const rng = createRng(state.rngState);
   const hall = state.townHalls[0];
-  const defenders = defendersOf(state, hall.x, hall.y, 999);
+  // Companions go into the dark; the stable keeps the lights on at home.
+  const defenders = [...defendersOf(state, hall.x, hall.y, 999), ...allyEntries(state, 'room')];
 
   const band = [];
   const size = 3 + cave.tier;
@@ -363,6 +372,9 @@ export function enterCave(state) {
     state.resources[id] = (state.resources[id] ?? 0) + amount;
   }
 
+  // Caves are where the shining ones are likeliest to be.
+  const egg = outcome.won ? maybeDropEgg(state, rng, cave.tier + 1) : null;
+
   state.caves.enteredMoon = cave.moonDay;
   state.caves.visits += 1;
   state.rngState = rng.getState();
@@ -372,6 +384,7 @@ export function enterCave(state) {
     won: outcome.won,
     lines: outcome.lines,
     reward,
+    egg,
     tier: cave.tier,
     band: band.map((monster) => ({ name: monster.name, icon: monster.icon })),
   };

@@ -25,6 +25,7 @@ import {
 } from './residents.js';
 import { advanceResearch, studyPower } from './research.js';
 import { advanceEquipment } from './equipment.js';
+import { advanceIncubation, resolveHatching } from './creatures.js';
 import { stepThreat } from './raids.js';
 
 /** A fresh record of everything that happened during an advance. */
@@ -42,6 +43,7 @@ export function createReport() {
     upgraded: [],
     arrivals: [],
     levelUps: [],
+    hatched: [],
     research: [],
     battles: [],
     raids: [],
@@ -110,6 +112,10 @@ function applySegment(state, ticks, report, offline) {
   // tips over, which is why `ticksToNextEvent` breaks on it above.
   advanceResidentXp(state, ticks);
 
+  // Eggs come on whether or not anybody is watching. An ally fights and does
+  // nothing else, so a hatch changes no rate and needs no segment of its own.
+  advanceIncubation(state, ticks);
+
   for (const key of Object.keys(state.world.facilities)) {
     const facility = state.world.facilities[key];
     if (facility.buildTicksRemaining > 0) facility.buildTicksRemaining -= ticks;
@@ -167,6 +173,7 @@ export function advanceTicks(state, ticks, options = {}) {
 
     completeConstruction(state, report);
     applyLevelUps(state, report);
+    resolveHatching(state, report);
 
     // Threat gathers whether or not anybody is watching; raids resolve only
     // when somebody is. That asymmetry IS the offline promise.
@@ -214,7 +221,7 @@ export function mergeReports(a, b) {
     if (a.filledAtTick[key] === undefined) a.filledAtTick[key] = b.filledAtTick[key];
   }
 
-  for (const list of ['seasons', 'completed', 'upgraded', 'arrivals', 'levelUps', 'research', 'battles', 'raids', 'raidWarnings', 'milestones']) {
+  for (const list of ['seasons', 'completed', 'upgraded', 'arrivals', 'levelUps', 'hatched', 'research', 'battles', 'raids', 'raidWarnings', 'milestones']) {
     a[list].push(...b[list]);
   }
   return a;

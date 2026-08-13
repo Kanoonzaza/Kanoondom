@@ -26,7 +26,8 @@ import { catchUp } from '../src/sim/offline.js';
 import {
   clearTerritoryFog, peaceLevel, unlockedRing, clearedTileCount,
 } from '../src/sim/world.js';
-import { place, canPlace, palette, stockOf } from '../src/sim/facilities.js';
+import { place, canPlace, palette, stockOf, countPlaced } from '../src/sim/facilities.js';
+import { FACILITIES } from '../src/content/facilities.js';
 import { storageCapacity } from '../src/sim/economy.js';
 import { freeBeds } from '../src/sim/residents.js';
 import {
@@ -39,6 +40,10 @@ import {
   raiseAll, equippedItems,
 } from '../src/sim/equipment.js';
 import { skillList, learn } from '../src/sim/skills.js';
+import {
+  waitingEggs, incubating, incubatorFor, canIncubate, incubate, canFeed, feed,
+  bandOf, nextBandAt, dominantCategory, alliesOf,
+} from '../src/sim/creatures.js';
 import { clearNest, graceRemaining, expeditionForecast } from '../src/sim/raids.js';
 import { knownNests, activeNests, threatRate, wardStrength } from '../src/sim/monsters.js';
 import { THREAT } from '../src/content/monsters.js';
@@ -149,11 +154,20 @@ function takeTurn(state) {
     if (canPromote(state, index).ok) promote(state, index);
   }
 
-  // Build anything a study has just handed over. A real player builds the
-  // thing they waited for; the first version of this bot did not, and spent
-  // five simulated hours with a Surveyor's Office sitting in its pocket.
-  for (const id of ['surveyor_office', 'library', 'master_smithy']) {
-    if (stockOf(state, id) > 0) tryBuild(state, id);
+  // Build anything a study has just handed over. A real player builds the thing
+  // they waited for.
+  //
+  // This was a NAMED LIST three times, and was forgotten three times — the
+  // Surveyor's Office, then the Master Smithy, then both incubators, each
+  // sitting unbuilt in the bot's pocket while the run reported the feature as
+  // dead. A list that has to be appended to for every new facility will be,
+  // eventually, not appended to. So: build one of anything research handed over
+  // that is not standing yet, whatever it turns out to be.
+  for (const def of Object.values(FACILITIES)) {
+    if (!def.locked) continue;
+    if (stockOf(state, def.id) <= 0) continue;
+    if (countPlaced(state, def.id) > 0) continue;
+    tryBuild(state, def.id);
   }
 
   // Surveys, whenever they are affordable. Land is the bottleneck.
@@ -205,6 +219,33 @@ function takeTurn(state) {
 
   tendTheForge(state);
   spendCopperOnSkills(state);
+  raiseTheEggs(state);
+}
+
+/**
+ * Put eggs somewhere warm and feed them to High WITHOUT tipping into Over.
+ *
+ * An ordinary player aims at the window rather than pushing the slider to the
+ * end, and the screen tells them where the edge is — so the bot stops one band
+ * short of the trap, which is the behaviour the design is asking for.
+ */
+function raiseTheEggs(state) {
+  for (const egg of waitingEggs(state)) {
+    for (const role of ['stable', 'room']) {
+      if (canIncubate(state, egg.id, role).ok) { incubate(state, egg.id, role); break; }
+    }
+  }
+
+  for (const egg of incubating(state)) {
+    const band = bandOf(egg);
+    if (band.id === 'high' || band.id === 'over') continue;
+
+    // Feed the category it already leans towards, and stop before Over.
+    const category = dominantCategory(egg);
+    const next = nextBandAt(egg);
+    if (next && next.band.id === 'over') continue;
+    if (canFeed(state, egg.id, category).ok) feed(state, egg.id, category);
+  }
 }
 
 /**
@@ -429,6 +470,18 @@ function runPace(seed) {
     + `bronze ${Math.round(state.resources.bronze)} of ${Math.round(caps.bronze)}`);
   check(skillsBought > 0, 'spends copper on skills at all', `${skillsBought} learned`);
   check(gearMade > 0, 'forges gear at all', `${gearMade} pieces`);
+
+  const hatched = state.allies.length;
+  const eggsHeld = state.eggs.length;
+  const stable = incubatorFor(state, 'stable') ? 'stable built' : 'NO STABLE';
+  const room = incubatorFor(state, 'room') ? 'room built' : 'no room';
+  log(`        ${hatched} monsters hatched · ${eggsHeld} eggs in hand · ${stable} · ${room}`);
+  note(hatched > 0, 'hatches something from an egg', `${hatched} hatched, ${eggsHeld} still incubating`);
+  for (const egg of state.eggs) {
+    if (bandOf(egg).id === 'over') {
+      failures.push(`the bot overfed a ${egg.colour} egg — it should stop at the window`);
+    }
+  }
   // OPEN FINDING, and the diagnosis has moved on. V6 left this pinned because
   // residents never levelled, so skill slots never opened; V7's levelling
   // nearly tripled the spend (32 skills -> 89 across the same run). It is still

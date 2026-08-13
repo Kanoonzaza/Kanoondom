@@ -28,6 +28,8 @@ import {
 } from './sim/research.js';
 import { runSurvey } from './sim/survey.js';
 import { renderWatch, battleSheet } from './ui/watch.js';
+import { incubate, feed, bandOf, creatureFor } from './sim/creatures.js';
+import { creatureDef, colourDef, ROLES, categoryDef } from './content/creatures.js';
 import { clearNest, enterCave, graceRemaining } from './sim/raids.js';
 import { nestSites, threatLabel } from './sim/monsters.js';
 import { rehouse, freeBeds, totalBeds } from './sim/residents.js';
@@ -166,6 +168,20 @@ function handleReport(report) {
       kind: 'good',
       ms: 6000,
       onTap: () => { view.screen = 'forge'; markDirty(); },
+    });
+    markDirty();
+  }
+
+  for (const hatch of report.hatched) {
+    toast({
+      title: `${hatch.icon} A ${colourDef(hatch.colour).name} egg hatched`,
+      rows: [
+        ['', `${hatch.name} — ${creatureDef(hatch.creatureId).skill}`, 'pos'],
+        ['', ROLES[hatch.role].name],
+      ],
+      kind: 'good',
+      ms: 9000,
+      onTap: () => { view.screen = 'watch'; markDirty(); },
     });
     markDirty();
   }
@@ -326,7 +342,7 @@ function renderScreen() {
   } else if (view.screen === 'forge') {
     mount(host, renderForge(state, forgeHandlers));
   } else if (view.screen === 'watch') {
-    mount(host, renderWatch(state, watchHandlers));
+    mount(host, renderWatch(state, { ...watchHandlers, ...eggHandlers }));
   } else if (view.screen === 'realm') {
     mount(host, renderRealmSummary());
   } else {
@@ -514,6 +530,7 @@ const watchHandlers = {
       return;
     }
     openSheet(battleSheet(result, closeSheet, { title: 'The nest' }));
+    announceEgg(result.egg);
     saveToStorage(state);
     markDirty();
   },
@@ -525,10 +542,27 @@ const watchHandlers = {
       return;
     }
     openSheet(battleSheet(result, closeSheet, { title: 'The cave' }));
+    announceEgg(result.egg);
     saveToStorage(state);
     markDirty();
   },
 };
+
+/** One of them was shining. That is worth interrupting the player for. */
+function announceEgg(egg) {
+  if (!egg) return;
+  const colour = colourDef(egg.colour);
+  toast({
+    title: `${colour.icon} A shining one left an egg`,
+    rows: [
+      ['', `${colour.name}, rank ${egg.rank}`, 'pos'],
+      ['', 'Raise it in a stable or a room, and feed it carefully.'],
+    ],
+    kind: 'good',
+    ms: 10000,
+    onTap: () => { view.screen = 'watch'; markDirty(); },
+  });
+}
 
 const forgeHandlers = {
   onForge(defId) {
@@ -622,6 +656,46 @@ const forgeHandlers = {
     saveToStorage(state);
     // The sheet is still open and now out of date.
     openSheet(skillSheet(state, resident, forgeHandlers, closeSheet));
+    markDirty();
+  },
+};
+
+const eggHandlers = {
+  onIncubate(eggId, role) {
+    const result = incubate(state, eggId, role);
+    if (!result.ok) {
+      toast({ title: 'Not there', rows: [['', result.reason]], kind: 'bad', ms: 3500 });
+      return;
+    }
+    toast({
+      title: `${ROLES[role].icon} Into the ${ROLES[role].name}`,
+      rows: [['', 'Feed it while it grows — what you feed decides what comes out.', 'pos']],
+      kind: 'good',
+      ms: 6000,
+    });
+    saveToStorage(state);
+    markDirty();
+  },
+
+  onFeed(eggId, categoryId) {
+    const result = feed(state, eggId, categoryId);
+    if (!result.ok) {
+      toast({ title: 'Cannot feed it', rows: [['', result.reason]], kind: 'bad', ms: 3500 });
+      return;
+    }
+    const willBe = creatureDef(result.willHatch);
+    const over = result.band.id === 'over';
+    toast({
+      title: over ? 'Overfed' : `Fed ${categoryDef(categoryId).name}`,
+      rows: over
+        ? [['', 'It has had too much — the hatch has slipped back to Low.', 'neg'],
+           ['Would hatch', `${willBe.icon} ${willBe.name}`]]
+        : [['Band', result.band.name, 'pos'],
+           ['Would hatch', `${willBe.icon} ${willBe.name}`]],
+      kind: over ? 'warn' : 'good',
+      ms: 6000,
+    });
+    saveToStorage(state);
     markDirty();
   },
 };
