@@ -16,6 +16,11 @@ import { el, mount, short } from './ui/dom.js';
 import { createMapView, tileSheet, buildSheet, centreOn, mapMode } from './ui/map.js';
 import { openSheet, closeSheet, toast } from './ui/panels.js';
 import { renderPeople, residentSheet } from './ui/people.js';
+import { renderStudy } from './ui/study.js';
+import {
+  startResearch, cancelResearch, promote, checkMapRewards, townRank,
+} from './sim/research.js';
+import { runSurvey } from './sim/survey.js';
 import { rehouse, freeBeds, totalBeds } from './sim/residents.js';
 import { professionDef } from './content/professions.js';
 import { TICKS_PER_SEASON, SPEEDS, ZONE_UNLOCKS } from './content/config.js';
@@ -84,6 +89,20 @@ function boot() {
       kind: spilled.length > 0 ? 'warn' : 'good',
       ms: 12000,
     });
+    for (const study of welcome.research ?? []) {
+      toast({
+        title: `📜 ${study.name}`,
+        rows: [
+          ['Finished while you were away', grantedText(study.granted), 'pos'],
+          ...(study.granted.unlocked.length > 0
+            ? [['New in the build menu', study.granted.unlocked.map((id) => facilityDef(id).name).join(', '), 'pos']]
+            : []),
+        ],
+        kind: 'good',
+        ms: 10000,
+      });
+    }
+
     if (state.residents.length > 0) {
       toast({
         title: 'Your town carried on',
@@ -160,6 +179,21 @@ function handleReport(report) {
       rows: [['', `${profession.name}, level ${arrival.level}`, 'pos']],
       kind: 'good',
       ms: 5000,
+    });
+    markDirty();
+  }
+
+  for (const study of report.research) {
+    toast({
+      title: `📜 ${study.name}`,
+      rows: [
+        ['The study is finished', grantedText(study.granted), 'pos'],
+        ...(study.granted.unlocked.length > 0
+          ? [['New in the build menu', study.granted.unlocked.map((id) => facilityDef(id).name).join(', '), 'pos']]
+          : []),
+      ],
+      kind: 'good',
+      ms: 9000,
     });
     markDirty();
   }
@@ -281,6 +315,8 @@ function renderScreen() {
 
   if (view.screen === 'people') {
     mount(host, renderPeople(state, peopleHandlers));
+  } else if (view.screen === 'study') {
+    mount(host, renderStudy(state, studyHandlers));
   } else if (view.screen === 'realm') {
     mount(host, renderRealmSummary());
   } else {
@@ -365,6 +401,100 @@ const peopleHandlers = {
   },
 };
 
+const studyHandlers = {
+  onStartResearch(id) {
+    const result = startResearch(state, id);
+    if (!result.ok) {
+      toast({ title: 'Cannot study that', rows: [['', result.reason]], kind: 'bad', ms: 3500 });
+      return;
+    }
+    toast({
+      title: 'The study begins',
+      rows: [['', 'It carries on while you are away.']],
+      kind: 'good',
+      ms: 4000,
+    });
+    saveToStorage(state);
+    markDirty();
+  },
+
+  onCancelResearch() {
+    const result = cancelResearch(state);
+    if (!result.ok) return;
+    toast({
+      title: 'Set aside',
+      rows: [['Progress kept', `${Math.floor(result.kept)} points`, 'pos']],
+      ms: 4000,
+    });
+    saveToStorage(state);
+    markDirty();
+  },
+
+  onPromote(index) {
+    const result = promote(state, index);
+    if (!result.ok) {
+      toast({ title: 'Not yet', rows: [['', result.reason]], kind: 'warn', ms: 4000 });
+      return;
+    }
+    toast({
+      title: `🏛️ Town Hall raised to rank ${result.level}`,
+      rows: [
+        ['New studies', 'check the list below', 'pos'],
+        ...(result.revealed > 0 ? [['Land revealed', `${result.revealed} tiles`, 'pos']] : []),
+      ],
+      kind: 'good',
+      ms: 7000,
+    });
+    announceMapRewards(result.rewards);
+    saveToStorage(state);
+    markDirty();
+  },
+
+  onSurvey() {
+    const result = runSurvey(state);
+    if (!result.ok) {
+      toast({ title: 'Cannot survey', rows: [['', result.reason]], kind: 'bad', ms: 3500 });
+      return;
+    }
+    toast({
+      title: `🗺️ ${result.find.name}`,
+      rows: [
+        ['', result.find.text],
+        ['Brought back', grantedText(result.granted) || 'nothing but the map', 'pos'],
+        ['Land revealed', `${result.revealed} tiles`, 'pos'],
+      ],
+      kind: 'good',
+      ms: 8000,
+    });
+    announceMapRewards(result.rewards);
+    saveToStorage(state);
+    markDirty();
+  },
+};
+
+/** "+2 Path · +1 Sage's Tome" — what a grant actually handed over. */
+function grantedText(granted) {
+  const parts = [];
+  for (const [facilityId, amount] of Object.entries(granted.stock ?? {})) {
+    parts.push(`+${amount} ${facilityDef(facilityId).name}`);
+  }
+  for (const [resource, amount] of Object.entries(granted.resources ?? {})) {
+    parts.push(`+${Math.round(amount)} ${RESOURCES[resource].name}`);
+  }
+  return parts.join(' · ');
+}
+
+function announceMapRewards(rewards = []) {
+  for (const reward of rewards) {
+    toast({
+      title: `🧭 ${reward.name}`,
+      rows: [['Mapped at last', grantedText(reward.granted), 'pos']],
+      kind: 'good',
+      ms: 7000,
+    });
+  }
+}
+
 function openBuildSheet() {
   openSheet(buildSheet(state, palette(state), {
     onPick: (facilityId) => {
@@ -390,6 +520,19 @@ function placeHere(x, y) {
     return;
   }
   state.stats.facilitiesBuilt += 1;
+
+  // Founding a town hall claims — and reveals — new ground, which may be worth
+  // a map reward.
+  if (result.revealed > 0) {
+    toast({
+      title: 'New land claimed',
+      rows: [['', `${result.revealed} tiles brought to light`, 'pos']],
+      kind: 'good',
+      ms: 5000,
+    });
+    announceMapRewards(checkMapRewards(state));
+  }
+
   // Stay in build mode while stock lasts, so a row of paths is not ten trips
   // through the menu.
   if ((state.stock[facilityId] ?? 0) <= 0) {
@@ -469,8 +612,9 @@ function renderRealmSummary() {
     el('div.card', {}, [
       el('div.card-title', { text: 'Where you stand' }),
       el('div.pi-note', {
-        text: `Your capital sits in ${zoneLabel(zone.zx, zone.zy)}. Research, equipment, `
-          + `monsters and the creatures you can raise all arrive in the milestones ahead.`,
+        text: `Your capital sits in ${zoneLabel(zone.zx, zone.zy)}, at rank ${townRank(state)}. `
+          + `Raise its rank in the Study to open new research. Equipment, monsters and the `
+          + `creatures you can raise all arrive in the milestones ahead.`,
       }),
     ]),
   ]);
@@ -481,6 +625,7 @@ function renderRealmSummary() {
 const TABS = [
   { id: 'world', icon: '🗺️', label: 'World' },
   { id: 'people', icon: '👥', label: 'People' },
+  { id: 'study', icon: '📜', label: 'Study' },
   { id: 'realm', icon: '🏰', label: 'Realm' },
 ];
 

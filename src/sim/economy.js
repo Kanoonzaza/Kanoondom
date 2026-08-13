@@ -27,7 +27,7 @@ export function forEachActiveFacility(state, fn) {
  * changes mid-segment — which is what lets the clock resolve whole spans in
  * closed form and keeps offline catch-up identical to live play.
  */
-export function productionRates(state) {
+export function productionRates(state, precomputedResidents = null) {
   const rates = {};
   for (const id of RESOURCE_IDS) rates[id] = 0;
 
@@ -41,8 +41,9 @@ export function productionRates(state) {
   rates.energy += RESOURCES.energy.regenPerTick;
 
   // Residents: their shops, and what they bring home themselves. One pass,
-  // because this is the hot path for offline catch-up.
-  const residents = residentRates(state);
+  // because this is the hot path for offline catch-up — and the clock passes
+  // its own copy in, since it needs the study power out of the same walk.
+  const residents = precomputedResidents ?? residentRates(state);
   rates.copper += residents.copper;
   for (const [resource, amount] of Object.entries(residents.gathers)) {
     rates[resource] += amount;

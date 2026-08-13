@@ -57,6 +57,9 @@ export function catchUp(state, now = Date.now()) {
     resourcesBefore,
     completed: report.completed,
     upgraded: report.upgraded,
+    // A study left running is finished when you get back. That is the whole
+    // pillar applied to progression rather than only to stores.
+    research: report.research,
     fullMoons: report.fullMoons,
     // Guaranteed empty until V5, and guaranteed empty even then. Kept in the
     // summary so the promise is visible in the data, not only in a comment.

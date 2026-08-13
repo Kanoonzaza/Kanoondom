@@ -185,11 +185,42 @@ Following [research-system.md](../research/research-system.md).
 availability is gated by **Town Hall rank** — two independent axes: what is
 offered, and whether you can afford it.
 
-**Samples** (weapon/helmet/shield/armor/accessory) are a distinct ingredient
-class gating equipment research specifically.
+**Samples** are a distinct ingredient class gating the studies that need a
+thing to copy. The real game splits them by equipment slot
+(weapon/helmet/shield/armor/accessory); we ship one generic Sample and split it
+when equipment lands in V6.
 
 Town Hall rank is the master track: research availability, territory radius,
 monarch rank (D→C→B→A→S every 15 levels).
+
+**What raises rank (ours; the wiki never says).** A *promotion*, claimed by the
+player, needing both **development** and a **fee**. Development counts
+residents, standing facilities and explored tiles — the things we want the
+player doing anyway, so getting promoted is never a separate errand from
+playing.
+
+**Study rate.** Studies finish on accumulated *study points*, not on a timer:
+a base floor of 1/tick, plus researchers (scaled by their INT, which is mostly
+a product of what stands near their house), plus Libraries. Because it is
+accumulation rather than a countdown, a study left running finishes while the
+player is away — the founding pillar applied to progression. Finishing a study
+changes no production rate, so it needs no segment boundary of its own.
+
+**Surveys** replace the real game's paid random pull. A Surveyor's Office
+spends materials to reveal the nearest unexplored ground and bring back a find.
+The land is the point: fog is the only thing between a new kingdom and its
+second town hall.
+
+**Map rewards** pay stock for exploring, at fixed tile thresholds.
+
+### The ceiling rule
+
+Fog only lifts inside unlocked zones, so while ring *n* is the frontier the
+highest reachable Peace Level is ring *n*'s share of the world. Any gate — or
+map reward — set above that ceiling is not a gate but a locked door with no
+key. Both shipped that bug once: ring 1 wanted 15% peace against an 11.1%
+ceiling, and the first map reward wanted 1,200 tiles against 1,024.
+`ringCeiling` plus tests in `research.test.js` now make it unshippable.
 
 ## 9. Monsters and combat
 

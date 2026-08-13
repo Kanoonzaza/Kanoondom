@@ -240,15 +240,125 @@ export const FACILITIES = {
     aura: { radius: 2, stats: { luck: 3 } },
     blurb: 'Deep coffers. Coin stops overflowing while you sleep.',
   },
+
+  // --- Amenity (research: facilities.md) -----------------------------------
+  // Every one of these is LOCKED until researched. That is the point of the
+  // research layer: the build menu grows as the kingdom learns, rather than
+  // handing you everything on day one.
+  surveyor_office: {
+    id: 'surveyor_office', name: "Surveyor's Office", icon: '\u{1F5FA}\uFE0F', category: 'amenity',
+    size: { w: 2, h: 2 },
+    cost: { wood: 60, ore: 25 },
+    buildTicks: 60,
+    stock: 0,
+    locked: true,
+    aura: { radius: 3, stats: { move: 4, luck: 3 } },
+    /** Surveys are run from here. A better office reaches further out. */
+    surveys: true,
+    blurb: 'Sends out surveyors, who bring back land and finds.',
+  },
+  library: {
+    id: 'library', name: 'Library', icon: '\u{1F3EB}', category: 'amenity',
+    size: { w: 2, h: 2 },
+    cost: { wood: 90, ore: 30 },
+    buildTicks: 90,
+    stock: 0,
+    locked: true,
+    storage: { tome: 200, sample: 100 },
+    aura: { radius: 3, stats: { int: 6, mp: 3 } },
+    /** Study points added regardless of who lives nearby. */
+    studyPower: 0.6,
+    blurb: 'The kingdom studies faster, and keeps more of what it has written.',
+  },
+  bench: {
+    id: 'bench', name: 'Bench', icon: '\u{1FA91}', category: 'amenity',
+    size: { w: 1, h: 1 },
+    cost: { wood: 12 },
+    buildTicks: 8,
+    stock: 0,
+    locked: true,
+    aura: { radius: 2, stats: { heart: 3, vigor: 2 } },
+    blurb: 'Somewhere to sit. Cheap, and it adds up.',
+  },
+  hot_spring: {
+    id: 'hot_spring', name: 'Hot Spring', icon: '\u{2668}\uFE0F', category: 'amenity',
+    size: { w: 2, h: 2 },
+    cost: { ore: 70, wood: 40 },
+    buildTicks: 100,
+    stock: 0,
+    locked: true,
+    aura: { radius: 4, stats: { vigor: 12, hp: 8, heart: 4 } },
+    blurb: 'The strongest thing you can put next to a house.',
+  },
+  training_yard: {
+    id: 'training_yard', name: 'Training Yard', icon: '\u{2694}\uFE0F', category: 'amenity',
+    size: { w: 2, h: 2 },
+    cost: { wood: 70, ore: 50 },
+    buildTicks: 85,
+    stock: 0,
+    locked: true,
+    aura: { radius: 3, stats: { atk: 7, def: 5, dex: 4 } },
+    blurb: 'Fighters who live near it are worth sending out.',
+  },
+  fishing_pond: {
+    id: 'fishing_pond', name: 'Fishing Pond', icon: '\u{1F41F}', category: 'amenity',
+    size: { w: 2, h: 2 },
+    cost: { wood: 55, grass: 35 },
+    buildTicks: 70,
+    stock: 0,
+    locked: true,
+    produces: { food: 0.09 },
+    likesBiome: { swamp: 0.45, soil: 0.2, grass: 0.1 },
+    aura: { radius: 2, stats: { heart: 3, luck: 3 } },
+    blurb: 'Food from standing water. Wants swamp under it.',
+  },
+
+  // --- Materials: high-grade storage ---------------------------------------
+  // The research-gated tier. Storage is the only cap on what accumulates while
+  // you are away, so these are the most valuable things research can give you.
+  great_granary: {
+    id: 'great_granary', name: 'Great Granary', icon: '\u{1F3E3}', category: 'materials',
+    size: { w: 3, h: 3 },
+    cost: { wood: 200, ore: 90 },
+    buildTicks: 150,
+    stock: 0,
+    locked: true,
+    storage: { food: 12000, grass: 8000 },
+    aura: { radius: 3, stats: { vigor: 3, heart: 2 } },
+    blurb: 'Three times a granary, and then some.',
+  },
+  deep_vault: {
+    id: 'deep_vault', name: 'Deep Vault', icon: '\u{1F5DD}\uFE0F', category: 'materials',
+    size: { w: 3, h: 3 },
+    cost: { wood: 180, ore: 200, mysticOre: 20 },
+    buildTicks: 180,
+    stock: 0,
+    locked: true,
+    storage: { copper: 24000, bronze: 16000, silver: 6000 },
+    aura: { radius: 3, stats: { luck: 5 } },
+    blurb: 'Coin stops overflowing, however long you are gone.',
+  },
+  stone_yard: {
+    id: 'stone_yard', name: 'Stone Yard', icon: '\u{1F3D7}\uFE0F', category: 'materials',
+    size: { w: 3, h: 3 },
+    cost: { wood: 150, ore: 160 },
+    buildTicks: 160,
+    stock: 0,
+    locked: true,
+    storage: { ore: 11000, mysticOre: 4500 },
+    aura: { radius: 3, stats: { def: 4, atk: 2 } },
+    blurb: 'Room for everything your miners drag home.',
+  },
 };
 
 export const FACILITY_IDS = Object.keys(FACILITIES);
-export const FACILITY_CATEGORIES = ['environment', 'housing', 'materials'];
+export const FACILITY_CATEGORIES = ['environment', 'housing', 'materials', 'amenity'];
 
 export const CATEGORY_LABELS = {
   environment: 'Environment',
   housing: 'Housing — homes and the shops they carry',
   materials: 'Materials — production and storage',
+  amenity: 'Amenity — what makes your people better at living here',
 };
 
 // ---------------------------------------------------------------------------

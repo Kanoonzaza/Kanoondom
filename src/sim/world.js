@@ -263,6 +263,23 @@ export function nextGate(state) {
   return ZONE_UNLOCKS.find((gate) => gate.ring === ring + 1) ?? null;
 }
 
+/**
+ * The highest Peace Level physically reachable with rings up to `ring` open.
+ *
+ * Fog only lifts inside unlocked zones, so this is a hard ceiling — and a gate
+ * set above the ceiling of the ring below it can never be passed. That bug
+ * shipped once; `tests/world.test.js` now makes it impossible to ship again.
+ */
+export function ringCeiling(ring) {
+  let zones = 0;
+  for (let zy = 0; zy < WORLD.zonesY; zy++) {
+    for (let zx = 0; zx < WORLD.zonesX; zx++) {
+      if (zoneRing(zx, zy) <= ring) zones++;
+    }
+  }
+  return (zones * WORLD.zoneTiles * WORLD.zoneTiles / TILE_COUNT) * 100;
+}
+
 /** Tiles in every unlocked zone — the denominator for Peace Level. */
 export function unlockedTileCount(state) {
   const ring = unlockedRing(state);

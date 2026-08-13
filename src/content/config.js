@@ -43,17 +43,29 @@ export const TOWN_HALL = {
  * Zone unlock gates. Ring 0 is where you start.
  *
  * The real game's thresholds (59 / 69 / 77 / 89 / 94%) assume its own Peace
- * Level formula, which is undocumented. Ours measures the share of the whole
- * world explored, so the numbers are scaled to that: a fresh kingdom sits near
- * 7%, two well-spaced town halls plus some exploring reaches 15%, and the far
- * country wants real expansion.
+ * Level formula, which is undocumented. Ours measures the share of the WHOLE
+ * world explored — see sim/world.js for why the denominator is fixed.
+ *
+ * THE CEILING THAT MATTERS: fog can only be lifted inside unlocked zones, so
+ * while only ring 0 is open the very best a player can reach is ring 0's share
+ * of the world. On a 6x6 map that is 4 zones of 36 — 11.1%. A gate above that
+ * is not a hard gate, it is a locked door with no key, and the first draft of
+ * this table had exactly that: ring 1 wanted 15%.
+ *
+ * So each gate is set as a fraction of the ceiling of the ring BELOW it:
+ *
+ *   ring 1 at  9.0%  = 81% of ring 0's 11.1% ceiling
+ *   ring 2 at 28.0%  = 63% of ring 1's 44.4% ceiling
+ *
+ * `tests/world.test.js` asserts this relationship holds, so changing the world
+ * size can never quietly re-lock the map.
  *
  * These are growth gates, never clocks — the player sets the pace.
  */
 export const ZONE_UNLOCKS = [
   { ring: 0, peace: 0, townHalls: 0, label: 'Your homeland' },
-  { ring: 1, peace: 15, townHalls: 2, label: 'The near country' },
-  { ring: 2, peace: 35, townHalls: 3, label: 'The far country' },
+  { ring: 1, peace: 9, townHalls: 2, label: 'The near country' },
+  { ring: 2, peace: 28, townHalls: 3, label: 'The far country' },
 ];
 
 /**

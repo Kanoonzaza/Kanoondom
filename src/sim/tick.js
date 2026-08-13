@@ -19,7 +19,8 @@ import { TICKS_PER_SEASON, DAY } from '../content/config.js';
 import {
   productionRates, storageCapacity, applyProduction, settleStorage,
 } from './economy.js';
-import { resolveArrivals, ticksToNextArrival } from './residents.js';
+import { resolveArrivals, ticksToNextArrival, residentRates } from './residents.js';
+import { advanceResearch, studyPower } from './research.js';
 
 /** A fresh record of everything that happened during an advance. */
 export function createReport() {
@@ -35,6 +36,7 @@ export function createReport() {
     completed: [],
     upgraded: [],
     arrivals: [],
+    research: [],
     battles: [],
     raids: [],
     raidWarnings: [],
@@ -71,13 +73,23 @@ export function ticksToNextEvent(state) {
  * event, and events only fire at segment boundaries.
  */
 function applySegment(state, ticks, report, offline) {
+  // One walk of the residents feeds both production and study. Two walks was
+  // the V3 performance bug; this is the shape that fixed it.
+  const residents = residentRates(state);
+
   // Rates are constant for the whole segment by construction, so the entire
   // span resolves in one piece of arithmetic rather than tick by tick.
   applyProduction(
     state, ticks,
-    productionRates(state), storageCapacity(state),
+    productionRates(state, residents), storageCapacity(state),
     report, state.time.totalTicks
   );
+
+  // Studies accumulate like anything else — including while the player is
+  // away. Finishing one changes no rate, so this needs no segment of its own.
+  if (state.research?.active) {
+    advanceResearch(state, ticks, report, studyPower(state, residents.study));
+  }
 
   for (const key of Object.keys(state.world.facilities)) {
     const facility = state.world.facilities[key];
@@ -177,7 +189,7 @@ export function mergeReports(a, b) {
     if (a.filledAtTick[key] === undefined) a.filledAtTick[key] = b.filledAtTick[key];
   }
 
-  for (const list of ['seasons', 'completed', 'upgraded', 'arrivals', 'battles', 'raids', 'raidWarnings', 'milestones']) {
+  for (const list of ['seasons', 'completed', 'upgraded', 'arrivals', 'research', 'battles', 'raids', 'raidWarnings', 'milestones']) {
     a[list].push(...b[list]);
   }
   return a;

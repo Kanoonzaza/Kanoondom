@@ -13,6 +13,7 @@ import { PROFESSIONS, professionDef, ARRIVAL_WEIGHTS } from '../content/professi
 import { STAT_IDS, emptyStats } from '../content/stats.js';
 import { facilityDef } from '../content/facilities.js';
 import { RESIDENTS, DAY } from '../content/config.js';
+import { STUDY } from '../content/research.js';
 import { createRng, deriveSeed, SEED_SALT } from './rng.js';
 import { takeId, dayNumber } from '../state.js';
 import { tileX, tileY, isCleared } from './world.js';
@@ -274,6 +275,7 @@ export function residentRates(state) {
   };
 
   let copper = 0;
+  let study = 0;
   const gathers = {};
 
   for (const resident of state.residents) {
@@ -299,9 +301,19 @@ export function residentRates(state) {
         gathers[resource] = (gathers[resource] ?? 0) + amount * multiplier * RESIDENTS.gatherScale;
       }
     }
+
+    // Scholars, in the same pass. Research asks for study power once per
+    // segment, and walking the residents a second time for it would undo the
+    // V3 performance fix this loop exists to be.
+    if (profession.studies) {
+      const int = resident.baseStats.int + (aura.int ?? 0);
+      const wits = 1 + int * STUDY.perInt;
+      study += STUDY.researcherPower * wits;
+      gathers.tome = (gathers.tome ?? 0) + STUDY.tomesPerTick * wits;
+    }
   }
 
-  return { copper, gathers };
+  return { copper, gathers, study };
 }
 
 /** Everything the kingdom's shops bring in, per tick. */

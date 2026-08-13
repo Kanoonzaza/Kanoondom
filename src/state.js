@@ -14,7 +14,7 @@ import {
   TICKS_PER_SEASON, SEASONS_PER_YEAR, SEASON_NAMES, DAY, WORLD_TILES_X,
 } from './content/config.js';
 
-export const SCHEMA_VERSION = 1;
+export const SCHEMA_VERSION = 2;
 export const STORAGE_KEY = 'kingdom-sim-v2/save';
 
 export function newGame(seed = Math.floor(Math.random() * 0xffffffff), options = {}) {
@@ -79,6 +79,25 @@ export function newGame(seed = Math.floor(Math.random() * 0xffffffff), options =
     stock: Object.fromEntries(
       Object.values(FACILITIES).map((def) => [def.id, def.stock ?? 0])
     ),
+
+    /**
+     * What the kingdom has learned (research: research-system.md).
+     *
+     * `unlocked` is the list of facilities research has revealed — the build
+     * menu is this plus everything not marked `locked`. `progress` remembers
+     * studies that were set aside, so returning to one does not start over.
+     */
+    research: {
+      completed: [],
+      unlocked: [],
+      progress: {},
+      /** `{ id, progress, total }`, or null when nobody is studying anything. */
+      active: null,
+      /** Indices of MAP_REWARDS already paid out. */
+      mapRewards: [],
+    },
+
+    surveys: { done: 0, lastFindId: null },
 
     residents: [],
     parties: [],
@@ -209,6 +228,27 @@ export function migrate(save) {
       `Save was written by a newer version (schema ${state.schemaVersion}, this build reads ${SCHEMA_VERSION}).`
     );
   }
+
+  // 1 -> 2: research, surveys, and the knowledge resources they spend.
+  if (state.schemaVersion < 2) {
+    state.research = {
+      completed: [], unlocked: [], progress: {}, active: null, mapRewards: [],
+    };
+    state.surveys = { done: 0, lastFindId: null };
+    state.schemaVersion = 2;
+  }
+
+  // Resources and facilities are added between versions more often than the
+  // schema changes, so fill any gaps rather than adding a migration each time.
+  // A missing store must read 0, not undefined — undefined poisons every sum
+  // it touches and the damage shows up far from the cause.
+  for (const id of RESOURCE_IDS) {
+    if (typeof state.resources[id] !== 'number') state.resources[id] = 0;
+  }
+  for (const def of Object.values(FACILITIES)) {
+    if (typeof state.stock[def.id] !== 'number') state.stock[def.id] = 0;
+  }
+
   return state;
 }
 

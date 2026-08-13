@@ -18,6 +18,7 @@ import { TOWN_HALL } from '../content/config.js';
 import { takeId } from '../state.js';
 import {
   tileIndex, tileX, tileY, inBounds, biomeAt, inTerritory, isCleared, isZoneUnlocked, zoneOf,
+  clearTerritoryFog,
 } from './world.js';
 
 // ---------------------------------------------------------------------------
@@ -65,6 +66,20 @@ export function stockOf(state, facilityId) {
   return state.stock[facilityId] ?? 0;
 }
 
+/**
+ * Is this facility in the build menu yet?
+ *
+ * Read straight off the save rather than through sim/research.js: research
+ * needs `isActive` from this module, and an import cycle between the two would
+ * be a nasty thing to debug for no gain.
+ */
+export function isUnlocked(state, facilityId) {
+  const def = FACILITIES[facilityId];
+  if (!def) return false;
+  if (!def.locked) return true;
+  return (state.research?.unlocked ?? []).includes(facilityId);
+}
+
 export function canAfford(state, cost) {
   return Object.entries(cost).every(([resource, amount]) => state.resources[resource] >= amount);
 }
@@ -92,6 +107,7 @@ function refund(state, cost, fraction) {
 export function canPlace(state, x, y, facilityId) {
   const def = FACILITIES[facilityId];
   if (!def) return { ok: false, reason: 'Unknown facility' };
+  if (!isUnlocked(state, facilityId)) return { ok: false, reason: 'Nobody here knows how' };
   if (stockOf(state, facilityId) <= 0) return { ok: false, reason: 'None left in hand' };
 
   if (def.isTownHall && state.townHalls.length >= TOWN_HALL.maxHalls) {
@@ -156,11 +172,16 @@ export function place(state, x, y, facilityId) {
     state.world.occupied[tile] = origin;
   }
 
+  let revealed = 0;
   if (def.isTownHall) {
     state.townHalls.push({ id: takeId(state), x, y, level: 1, origin });
+    // A hall claims ground the moment it is founded, and claimed ground the
+    // player cannot see is ground they cannot build on.
+    revealed = clearTerritoryFog(state);
+    state.stats.tilesCleared += revealed;
   }
 
-  return { ok: true, reason: null, origin };
+  return { ok: true, reason: null, origin, revealed };
 }
 
 /**
@@ -317,6 +338,7 @@ export function outputMultiplier(state, facility, originIndex) {
 /** Everything the player can currently choose to build. */
 export function palette(state) {
   return Object.values(FACILITIES)
+    .filter((def) => isUnlocked(state, def.id))
     .filter((def) => !def.isTownHall || stockOf(state, def.id) > 0)
     .map((def) => ({
       def,

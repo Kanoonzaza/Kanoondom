@@ -44,8 +44,12 @@ export const PROFESSIONS = {
     id: 'researcher', name: 'Researcher', icon: '📚',
     shop: { name: 'Research Lab', icon: '🔬', cost: { wood: 12, ore: 8 }, incomePerShelf: 0.008 },
     statBias: { int: 4, mp: 2 },
-    /** Speeds research once V4 arrives. */
-    researchPower: 1,
+    /**
+     * Scholars study and write, both scaled by their INT — which is mostly a
+     * product of what stands near their house. Put a Library beside a
+     * researcher and the whole kingdom learns faster.
+     */
+    studies: true,
     blurb: 'Slow to earn, but the whole kingdom learns faster for it.',
   },
   monk: {
