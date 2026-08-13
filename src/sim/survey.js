@@ -50,9 +50,25 @@ export function surveyReach(state) {
   return Math.round(SURVEY.tilesRevealed * effectScale(office.level));
 }
 
+/** Ticks until the surveyors are back and ready to go out again. */
+export function surveyCooldownRemaining(state) {
+  const ready = state.surveys?.readyAtTick ?? 0;
+  return Math.max(0, ready - state.time.totalTicks);
+}
+
 export function canSurvey(state) {
   const office = surveyOffice(state);
   if (!office) return { ok: false, reason: 'You have no Surveyor’s Office', cost: null };
+
+  const waiting = surveyCooldownRemaining(state);
+  if (waiting > 0) {
+    return {
+      ok: false,
+      reason: `Your surveyors are still out there — back in ${Math.ceil(waiting)}s`,
+      cost: null,
+      waiting,
+    };
+  }
 
   const cost = surveyCost(state);
   for (const [resource, amount] of Object.entries(cost)) {
@@ -148,6 +164,7 @@ export function runSurvey(state) {
   state.rngState = rng.getState();
   state.surveys.done += 1;
   state.surveys.lastFindId = find.id;
+  state.surveys.readyAtTick = state.time.totalTicks + SURVEY.cooldownTicks;
 
   // Fog just moved, so a map reward may now be owed.
   const rewards = checkMapRewards(state);

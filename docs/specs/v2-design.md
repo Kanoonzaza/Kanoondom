@@ -213,6 +213,29 @@ second town hall.
 
 **Map rewards** pay stock for exploring, at fixed tile thresholds.
 
+### The floor rule
+
+No resource may reach a value the kingdom cannot climb back from. The Town Hall
+produces a trickle of every basic material regardless of what is built — a
+floor, not an economy, since one Field out-produces the grass trickle five
+times over.
+
+Related and stricter: **no material's producers may all require that material.**
+The V4 balance run found ore failing this. Every source of ore cost ore — the
+mine (20), the Surveyor's Office (25), the promotion fee (80), and the study
+that grants a mine sat behind that fee — so a player who spent their opening
+ore on housing was finished, with nothing on screen to say so. Wood had the
+same shape and survived only on generous starting stock. Both now have a
+producer that costs none of themselves, and `economy.test.js` asserts the rule
+for every material.
+
+### Pacing
+
+Exploration is the spine of progression, so it is paced by TIME, not money: a
+survey puts the surveyors out of action for a season. Cost alone never bit — a
+kingdom with full stores mapped all 9,216 tiles in two hours of play. The wait
+runs on the simulation clock, so it passes while the player is away.
+
 ### The ceiling rule
 
 Fog only lifts inside unlocked zones, so while ring *n* is the frontier the

@@ -8,6 +8,7 @@ import {
 } from '../src/sim/research.js';
 import {
   runSurvey, canSurvey, surveyCost, surveyReach, surveyOffice, revealFrontier, rollFind,
+  surveyCooldownRemaining,
 } from '../src/sim/survey.js';
 import { place, canPlace, palette, isUnlocked } from '../src/sim/facilities.js';
 import { advanceTicks } from '../src/sim/tick.js';
@@ -19,7 +20,9 @@ import {
   markCleared,
 } from '../src/sim/world.js';
 import { createRng } from '../src/sim/rng.js';
-import { RESEARCH, MAP_REWARDS, SURVEY_FINDS, STUDY, PROMOTION } from '../src/content/research.js';
+import {
+  RESEARCH, MAP_REWARDS, SURVEY_FINDS, STUDY, PROMOTION, SURVEY,
+} from '../src/content/research.js';
 import { FACILITIES } from '../src/content/facilities.js';
 import { RESOURCES, RESOURCE_IDS } from '../src/content/resources.js';
 import { ZONE_UNLOCKS, TILE_COUNT } from '../src/content/config.js';
@@ -424,9 +427,44 @@ test('surveys are deterministic for a given seed', () => {
     const state = kingdom(2024);
     learn(state, 'surveying');
     build(state, 'surveyor_office');
-    return [0, 1, 2].map(() => runSurvey(state).find.id);
+    return [0, 1, 2].map(() => {
+      const found = runSurvey(state).find.id;
+      advanceTicks(state, SURVEY.cooldownTicks);   // let the surveyors come home
+      return found;
+    });
   });
   assert.deepEqual(runs[0], runs[1]);
+});
+
+test('surveyors cannot be sent out again until they are back', () => {
+  const state = kingdom();
+  learn(state, 'surveying');
+  build(state, 'surveyor_office');
+
+  assert.equal(runSurvey(state).ok, true);
+  assert.ok(surveyCooldownRemaining(state) > 0);
+
+  const blocked = runSurvey(state);
+  assert.equal(blocked.ok, false);
+  assert.match(blocked.reason, /still out there/);
+
+  advanceTicks(state, SURVEY.cooldownTicks);
+  assert.equal(surveyCooldownRemaining(state), 0);
+  assert.equal(canSurvey(state).ok, true);
+});
+
+test('the wait for the surveyors passes while the player is away', () => {
+  // It runs on the simulation clock, not on anything the player has to sit
+  // and watch. Coming back should never mean waiting again.
+  const state = kingdom();
+  learn(state, 'surveying');
+  build(state, 'surveyor_office');
+  runSurvey(state);
+
+  state.lastSaveTime = 0;
+  catchUp(state, SURVEY.cooldownTicks * 2000);
+
+  assert.equal(surveyCooldownRemaining(state), 0);
 });
 
 test('a better office covers more ground', () => {

@@ -9,7 +9,9 @@ import { place, remove, canPlace } from '../src/sim/facilities.js';
 import { advanceTicks, createReport } from '../src/sim/tick.js';
 import { catchUp } from '../src/sim/offline.js';
 import { clearTerritoryFog, worldCentre } from '../src/sim/world.js';
-import { RESOURCES, RESOURCE_IDS, CAPITAL_INCOME, STARTING_RESOURCES } from '../src/content/resources.js';
+import {
+  RESOURCES, RESOURCE_IDS, MATERIAL_IDS, CAPITAL_INCOME, STARTING_RESOURCES,
+} from '../src/content/resources.js';
 import { FACILITIES, effectScale } from '../src/content/facilities.js';
 import { TICKS_PER_SEASON, OFFLINE } from '../src/content/config.js';
 
@@ -91,21 +93,32 @@ test('energy returns on its own', () => {
   assert.equal(productionRates(state).energy, RESOURCES.energy.regenPerTick);
 });
 
+/**
+ * What the BUILDINGS produce, with the Town Hall's own floor taken out.
+ *
+ * The capital trickles a little of every basic material so no kingdom can dig
+ * itself into an unrecoverable hole (see CAPITAL_INCOME). That floor is not a
+ * facility's doing, so these tests measure above it.
+ */
+function built(state, resource) {
+  return productionRates(state)[resource] - (CAPITAL_INCOME[resource] ?? 0);
+}
+
 test('a finished field produces; a building site does not', () => {
   const state = rich();
   const spot = findSpot(state, 'field');
   place(state, spot.x, spot.y, 'field');
-  assert.equal(productionRates(state).grass, 0, 'not until it is finished');
+  assert.equal(built(state, 'grass'), 0, 'not until it is finished');
 
   advanceTicks(state, FACILITIES.field.buildTicks);
-  assert.ok(productionRates(state).grass > 0);
+  assert.ok(built(state, 'grass') > 0);
 });
 
 test('the ground beneath a facility changes what it yields', () => {
   // Built on the guaranteed grass homeland, a field should beat its base rate.
   const state = rich();
   build(state, centre.x - 3, centre.y - 3, 'field');
-  const onGrass = productionRates(state).grass;
+  const onGrass = built(state, 'grass');
   assert.ok(
     onGrass > FACILITIES.field.produces.grass,
     `grass should reward a field: ${onGrass} vs base ${FACILITIES.field.produces.grass}`
@@ -115,19 +128,19 @@ test('the ground beneath a facility changes what it yields', () => {
 test('levels multiply production', () => {
   const state = rich();
   const { origin } = buildSomewhere(state, 'field');
-  const before = productionRates(state).grass;
+  const before = built(state, 'grass');
 
   state.world.facilities[origin].level = 3;
-  assert.ok(Math.abs(productionRates(state).grass - before * effectScale(3)) < 1e-9);
+  assert.ok(Math.abs(built(state, 'grass') - before * effectScale(3)) < 1e-9);
 });
 
 test('a removed facility stops producing', () => {
   const state = rich();
   const spot = buildSomewhere(state, 'field');
-  assert.ok(productionRates(state).grass > 0);
+  assert.ok(built(state, 'grass') > 0);
 
   remove(state, spot.x, spot.y);
-  assert.equal(productionRates(state).grass, 0);
+  assert.equal(built(state, 'grass'), 0);
 });
 
 // --- storage ------------------------------------------------------------------
@@ -378,4 +391,55 @@ test('the summary reports what finished while away', () => {
     summary.completed.some((entry) => entry.facilityId === 'lumber_yard'),
     'the yard left under construction should have finished'
   );
+});
+
+// ---------------------------------------------------------------------------
+// Dead ends — the class of bug that ends a save without announcing itself
+// ---------------------------------------------------------------------------
+
+test('no material has to be spent to produce itself', () => {
+  // The V4 ore trap: every producer of ore cost ore. The mine wanted 20, the
+  // Surveyor's Office 25, the promotion fee 80, and the study that grants a
+  // mine sat behind that fee. Spend your opening ore on housing and the
+  // kingdom was finished, with nothing on screen to say so.
+  for (const material of MATERIAL_IDS) {
+    const producers = Object.values(FACILITIES).filter((def) => def.produces?.[material]);
+    if (producers.length === 0) continue;
+
+    const free = producers.filter((def) => def.cost[material] === undefined);
+    assert.ok(
+      free.length > 0,
+      `every building that produces ${material} also costs ${material} `
+      + `(${producers.map((def) => def.id).join(', ')}) — a kingdom that runs out can never start again`
+    );
+  }
+});
+
+test('a kingdom stripped to nothing climbs back out on its own', () => {
+  const state = newGame(4, { now: 0 });
+  clearTerritoryFog(state);
+  for (const id of RESOURCE_IDS) state.resources[id] = 0;
+  state.residents = [];
+
+  advanceTicks(state, 6 * 60 * 60);   // six hours, nobody home
+
+  // Enough to build the cheapest producer of each material it needs.
+  for (const material of MATERIAL_IDS) {
+    const producers = Object.values(FACILITIES)
+      .filter((def) => def.produces?.[material] && def.cost[material] === undefined);
+    if (producers.length === 0) continue;
+
+    const cheapest = producers.sort(
+      (a, b) => Object.values(a.cost).reduce((x, y) => x + y, 0)
+        - Object.values(b.cost).reduce((x, y) => x + y, 0)
+    )[0];
+
+    for (const [resource, amount] of Object.entries(cheapest.cost)) {
+      assert.ok(
+        state.resources[resource] >= amount,
+        `cannot afford a ${cheapest.id} to restart ${material}: `
+        + `needs ${amount} ${resource}, has ${state.resources[resource].toFixed(1)}`
+      );
+    }
+  }
 });

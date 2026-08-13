@@ -253,6 +253,19 @@ export const SURVEY = {
   costGrowth: 0.15,
   /** Tiles revealed by a level 1 office; scales with the office's level. */
   tilesRevealed: 40,
+  /**
+   * Surveyors are away for a season before they can be sent out again.
+   *
+   * Without this, cost was the only brake, and it never bit: a kingdom with
+   * full stores surveyed every few seconds and had the entire world mapped in
+   * two hours of play. Exploration is the spine of this game's progression
+   * and it should last, so the brake is TIME rather than money.
+   *
+   * The wait runs on the simulation clock, so it passes while the player is
+   * away — the expedition is home by morning. It is not a timer the player is
+   * made to sit and watch.
+   */
+  cooldownTicks: 300,
 };
 
 /**

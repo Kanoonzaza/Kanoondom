@@ -145,7 +145,8 @@ export const FACILITIES = {
   plantation: {
     id: 'plantation', name: 'Plantation', icon: '🌳', category: 'materials',
     size: { w: 2, h: 2 },
-    cost: { wood: 20, grass: 30 },
+    // Grass only, for the same reason the mine takes no ore.
+    cost: { grass: 45 },
     buildTicks: 45,
     stock: 3,
     produces: { wood: 0.09 },
@@ -167,7 +168,8 @@ export const FACILITIES = {
   ore_mine: {
     id: 'ore_mine', name: 'Ore Mine', icon: '⛏️', category: 'materials',
     size: { w: 2, h: 2 },
-    cost: { wood: 60, ore: 20 },
+    // Costs no ore: a mine you cannot dig without ore is a mine you cannot dig.
+    cost: { wood: 60 },
     buildTicks: 70,
     stock: 2,
     produces: { ore: 0.07 },

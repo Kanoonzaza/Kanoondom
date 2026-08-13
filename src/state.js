@@ -103,7 +103,7 @@ export function newGame(seed = Math.floor(Math.random() * 0xffffffff), options =
       mapRewards: [],
     },
 
-    surveys: { done: 0, lastFindId: null },
+    surveys: { done: 0, lastFindId: null, readyAtTick: 0 },
 
     residents: [],
     parties: [],
@@ -240,7 +240,7 @@ export function migrate(save) {
     state.research = {
       completed: [], unlocked: [], progress: {}, active: null, mapRewards: [],
     };
-    state.surveys = { done: 0, lastFindId: null };
+    state.surveys = { done: 0, lastFindId: null, readyAtTick: 0 };
     state.schemaVersion = 2;
   }
 

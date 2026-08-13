@@ -82,21 +82,32 @@ export const KNOWLEDGE_IDS = RESOURCE_IDS.filter((id) => RESOURCES[id].kind === 
 /**
  * What the Town Hall itself brings in, per tick, regardless of what is built.
  *
- * Hard-won from v1: an economy that can reach zero income while anything drains
- * will bankrupt a new player into a corner they cannot climb out of. A floor
- * costs nothing and removes the entire failure mode.
+ * THE RULE THIS ENFORCES: no resource may ever reach a value the kingdom
+ * cannot climb back from. Every entry below is a floor, not an economy — one
+ * Field out-produces the grass trickle five times over — but a floor is what
+ * makes the difference between a slow patch and an unwinnable save.
+ *
+ * Learned three times now, each time the hard way:
+ *
+ *   v1  income could reach zero while upkeep drained, and a bankrupt kingdom
+ *       switched off its own farms and starved with no way back.
+ *   V4  tomes came only from researchers and surveys — and surveys had to be
+ *       researched, at a cost in tomes.
+ *   V4  ore was worse, because it was invisible. Every producer of ore cost
+ *       ore: the mine (20), the Surveyor's Office (25), the promotion fee
+ *       (80), and the research that grants a mine sat behind that fee. Spend
+ *       your opening ore on houses, as anyone would, and the kingdom was over
+ *       — still collecting wood and copper, with nothing to tell you why
+ *       nothing worked any more. The balance run found it; nothing else could.
  */
 export const CAPITAL_INCOME = {
   copper: 0.05,
-  /**
-   * A trickle of scholarship, for exactly the same reason.
-   *
-   * Tomes otherwise come only from researchers and from surveys — and surveys
-   * must themselves be RESEARCHED, at a cost in tomes. A kingdom with no tomes
-   * and no scholar would have no way to earn either: the v1 death spiral in a
-   * new costume. Slow is fine; zero is not.
-   */
+  wood: 0.02,
+  grass: 0.02,
+  food: 0.02,
+  ore: 0.02,
   tome: 0.0008,
+  // Deliberately NOT mysticOre: nothing needed to recover is bought with it.
 };
 
 /** Starting purse. Enough to place a first few things and make a mistake. */
