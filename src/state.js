@@ -50,6 +50,12 @@ export function newGame(seed = Math.floor(Math.random() * 0xffffffff), options =
      */
     world: {
       cleared: {},
+      /**
+       * How many tiles `cleared` holds. Maintained rather than counted, so
+       * Peace Level is O(1) — it sits under `isZoneUnlocked`, which placement
+       * checks ask once per footprint tile.
+       */
+      clearedCount: 0,
       wasteland: {},
       nests: {},
       /** Facility records, keyed by their ORIGIN (top-left) tile. */
@@ -247,6 +253,11 @@ export function migrate(save) {
   }
   for (const def of Object.values(FACILITIES)) {
     if (typeof state.stock[def.id] !== 'number') state.stock[def.id] = 0;
+  }
+
+  // Derived, and cheap to rebuild — so recover it rather than versioning it.
+  if (typeof state.world.clearedCount !== 'number') {
+    state.world.clearedCount = Object.keys(state.world.cleared).length;
   }
 
   return state;

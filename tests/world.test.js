@@ -8,6 +8,7 @@ import {
   peaceLevel, unlockedRing, isZoneUnlocked, nextGate,
   clearFog, clearTerritoryFog, isCleared, degrade, restore, wastelandAt, isWasteland,
   tileInfo,
+  markCleared,
 } from '../src/sim/world.js';
 import { BIOMES, BIOME_IDS } from '../src/content/biomes.js';
 import {
@@ -282,7 +283,7 @@ test('Peace Level stays inside 0..100', () => {
 
   const full = newGame(1, { now: 0 });
   full.townHalls.push({ id: 2, x: 20, y: 20, level: 1 });
-  for (let i = 0; i < WORLD_TILES_X * WORLD_TILES_Y; i++) full.world.cleared[i] = 1;
+  for (let i = 0; i < WORLD_TILES_X * WORLD_TILES_Y; i++) markCleared(full, i);
   assert.ok(peaceLevel(full) <= 100);
 });
 
@@ -291,7 +292,7 @@ test('unlocking needs BOTH peace and Town Halls', () => {
   const gate = ZONE_UNLOCKS.find((g) => g.ring === 1);
 
   // Peace alone is not enough.
-  for (let i = 0; i < 3000; i++) state.world.cleared[i] = 1;
+  for (let i = 0; i < 3000; i++) markCleared(state, i);
   assert.ok(peaceLevel(state) >= gate.peace, 'test needs peace above the gate');
   assert.equal(unlockedRing(state), 0, 'still shut without the halls');
 

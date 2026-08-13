@@ -307,8 +307,7 @@ export function unlockedTileCount(state) {
  * climbs as you explore, and only nests hold it back.
  */
 export function peaceLevel(state) {
-  const cleared = Object.keys(state.world.cleared).length;
-  const raw = (cleared / TILE_COUNT) * 100;
+  const raw = (clearedTileCount(state) / TILE_COUNT) * 100;
 
   const nests = Object.keys(state.world.nests).length;
   return Math.max(PEACE.floor, Math.min(100, raw - nests * PEACE.penaltyPerNest));
@@ -322,16 +321,44 @@ export function isCleared(state, x, y) {
   return state.world.cleared[tileIndex(x, y)] === 1;
 }
 
+/**
+ * How much of the world has been brought to light.
+ *
+ * MAINTAINED, not counted. The obvious `Object.keys(cleared).length` is O(all
+ * explored land), and Peace Level sits underneath `isZoneUnlocked`, which
+ * `canPlace` asks once PER FOOTPRINT TILE — so hovering a 4x3 building over a
+ * well-explored map cost 3.4ms a frame, growing with every tile the player
+ * ever revealed. Everything that lifts fog goes through `markCleared`, so this
+ * stays exact.
+ */
+export function clearedTileCount(state) {
+  if (typeof state.world.clearedCount !== 'number') {
+    // A save written before the count existed, or one edited by hand.
+    state.world.clearedCount = Object.keys(state.world.cleared).length;
+  }
+  return state.world.clearedCount;
+}
+
+/**
+ * Reveal one tile by index, with no zone or bounds checking.
+ *
+ * The single place `cleared` is written, so the count can never drift from it.
+ * Callers are responsible for deciding the tile is allowed to be revealed.
+ */
+export function markCleared(state, index) {
+  if (state.world.cleared[index] === 1) return false;
+  state.world.cleared[index] = 1;
+  state.world.clearedCount = clearedTileCount(state) + 1;
+  return true;
+}
+
 /** Reveal a tile. Returns true if it was newly cleared. */
 export function clearFog(state, x, y) {
   if (!inBounds(x, y)) return false;
   const { zx, zy } = zoneOf(x, y);
   if (!isZoneUnlocked(state, zx, zy)) return false;
 
-  const index = tileIndex(x, y);
-  if (state.world.cleared[index] === 1) return false;
-  state.world.cleared[index] = 1;
-  return true;
+  return markCleared(state, tileIndex(x, y));
 }
 
 /** Clear every tile inside the kingdom's borders — what settling does. */
@@ -340,8 +367,7 @@ export function clearTerritoryFog(state) {
   for (const index of territoryTiles(state)) {
     const { zx, zy } = zoneOf(tileX(index), tileY(index));
     if (!isZoneUnlocked(state, zx, zy)) continue;
-    if (state.world.cleared[index] !== 1) {
-      state.world.cleared[index] = 1;
+    if (markCleared(state, index)) {
       count++;
     }
   }

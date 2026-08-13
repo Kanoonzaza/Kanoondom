@@ -14,7 +14,10 @@ import { advanceTicks } from '../src/sim/tick.js';
 import { catchUp } from '../src/sim/offline.js';
 import { productionRates } from '../src/sim/economy.js';
 import { makeResident } from '../src/sim/residents.js';
-import { clearTerritoryFog, worldCentre, peaceLevel, ringCeiling } from '../src/sim/world.js';
+import {
+  clearTerritoryFog, worldCentre, peaceLevel, ringCeiling, clearedTileCount,
+  markCleared,
+} from '../src/sim/world.js';
 import { createRng } from '../src/sim/rng.js';
 import { RESEARCH, MAP_REWARDS, SURVEY_FINDS, STUDY, PROMOTION } from '../src/content/research.js';
 import { FACILITIES } from '../src/content/facilities.js';
@@ -468,15 +471,79 @@ test('the find table is exhaustive — every roll returns something', () => {
 });
 
 // ---------------------------------------------------------------------------
+// The cleared-tile count, which Peace Level and the gates all rest on
+// ---------------------------------------------------------------------------
+
+test('the cleared count never drifts from the tiles themselves', () => {
+  const state = kingdom();
+  const check = () => assert.equal(
+    clearedTileCount(state),
+    Object.keys(state.world.cleared).length,
+    'the maintained count must equal the real tiles'
+  );
+  check();
+
+  learn(state, 'surveying');
+  build(state, 'surveyor_office');
+  runSurvey(state);
+  check();
+
+  for (let i = 0; i < 6; i++) {
+    state.residents.push(makeResident(state, { name: `P${i}`, professionId: 'farmer', level: 1 }));
+  }
+  promote(state, 0);
+  check();
+
+  state.townHalls[0].level = 40;   // a much wider reach
+  clearTerritoryFog(state);
+  check();
+});
+
+test('revealing the same tile twice counts it once', () => {
+  const state = kingdom();
+  const before = clearedTileCount(state);
+  clearTerritoryFog(state);
+  assert.equal(clearedTileCount(state), before, 'already-clear ground is not new ground');
+});
+
+test('a save with no count recovers it rather than reading zero', () => {
+  const state = kingdom();
+  const real = Object.keys(state.world.cleared).length;
+  delete state.world.clearedCount;
+
+  const restored = deserialize(JSON.stringify(state));
+
+  assert.equal(restored.world.clearedCount, real);
+  assert.ok(peaceLevel(restored) > 0, 'peace must not collapse to zero on an old save');
+});
+
+test('peace level does not get slower as the world is explored', () => {
+  // It sits under `isZoneUnlocked`, which placement checks ask once per
+  // footprint tile — so counting the tiles here made hovering a building cost
+  // 3.4ms on a well-explored map, and grow from there.
+  const state = kingdom();
+  for (let i = 0; i < 9000; i++) markCleared(state, i);
+
+  const started = Date.now();
+  for (let i = 0; i < 20000; i++) peaceLevel(state);
+  const elapsed = Date.now() - started;
+
+  assert.ok(elapsed < 250, `20k peace checks took ${elapsed}ms — something is counting again`);
+});
+
+// ---------------------------------------------------------------------------
 // Map rewards
 // ---------------------------------------------------------------------------
 
 test('map rewards pay out once, in order, and never twice', () => {
   const state = kingdom();
-  state.stats.tilesCleared = MAP_REWARDS[1].tiles;
+  for (let i = 0; i < MAP_REWARDS[1].tiles; i++) markCleared(state, i);
+
+  const due = MAP_REWARDS.filter((reward) => reward.tiles <= clearedTileCount(state)).length;
+  assert.ok(due >= 2, 'the test should have passed at least two thresholds');
 
   const first = checkMapRewards(state);
-  assert.equal(first.length, 2, 'both thresholds passed should pay');
+  assert.equal(first.length, due, 'every threshold passed should pay');
 
   const second = checkMapRewards(state);
   assert.equal(second.length, 0, 'nothing should pay twice');

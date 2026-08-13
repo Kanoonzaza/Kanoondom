@@ -19,7 +19,7 @@ import { effectScale, facilityDef } from '../content/facilities.js';
 import { WORLD_TILES_X, WORLD_TILES_Y } from '../content/config.js';
 import { createRng } from './rng.js';
 import { isActive } from './facilities.js';
-import { tileIndex, zoneOf, zoneRing, unlockedRing } from './world.js';
+import { tileIndex, zoneOf, zoneRing, unlockedRing, markCleared } from './world.js';
 import { applyGrants, checkMapRewards } from './research.js';
 
 /** The best Surveyor's Office you have standing, or null. */
@@ -104,7 +104,7 @@ export function revealFrontier(state, budget) {
   candidates.sort((a, b) => a.distance - b.distance);
 
   const taking = Math.min(budget, candidates.length);
-  for (let i = 0; i < taking; i++) state.world.cleared[candidates[i].index] = 1;
+  for (let i = 0; i < taking; i++) markCleared(state, candidates[i].index);
   return taking;
 }
 
@@ -155,4 +155,3 @@ export function runSurvey(state) {
   return { ok: true, reason: null, revealed, find, granted, rewards };
 }
 
-export { SURVEY_FINDS };

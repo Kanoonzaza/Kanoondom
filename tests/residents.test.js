@@ -9,7 +9,7 @@ import { place, remove, canPlace } from '../src/sim/facilities.js';
 import { advanceTicks } from '../src/sim/tick.js';
 import { productionRates } from '../src/sim/economy.js';
 import { catchUp } from '../src/sim/offline.js';
-import { clearTerritoryFog, worldCentre, tileIndex } from '../src/sim/world.js';
+import { clearTerritoryFog, worldCentre, tileIndex, markCleared } from '../src/sim/world.js';
 import { auraAt } from '../src/sim/aura.js';
 import { PROFESSIONS, professionDef } from '../src/content/professions.js';
 import { FACILITIES } from '../src/content/facilities.js';
@@ -152,7 +152,7 @@ test('who arrives on a given day is fixed by that day', () => {
 test('a wider-explored kingdom attracts more people', () => {
   const quiet = kingdom(12);
   const known = kingdom(12);
-  for (let i = 0; i < 3000; i++) known.world.cleared[i] = 1;
+  for (let i = 0; i < 3000; i++) markCleared(known, i);
 
   const count = (state) => {
     let arrivals = 0;

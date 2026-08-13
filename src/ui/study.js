@@ -6,11 +6,11 @@
 import { el, short, duration } from './dom.js';
 import {
   townRank, developmentPoints, promotionRequirement, canPromote,
-  researchList, studyPower, isResearched,
+  researchList, studyPower,
 } from '../sim/research.js';
 import { canSurvey, surveyCost, surveyReach, surveyOffice } from '../sim/survey.js';
 import { monarchRank, hallRadius, zoneLabel, zoneOf } from '../sim/world.js';
-import { RESEARCH_SECTIONS, MAP_REWARDS, SURVEY_FINDS } from '../content/research.js';
+import { RESEARCH, RESEARCH_SECTIONS, MAP_REWARDS, SURVEY_FINDS } from '../content/research.js';
 import { facilityDef } from '../content/facilities.js';
 import { RESOURCES } from '../content/resources.js';
 import { TOWN_HALL } from '../content/config.js';
@@ -39,19 +39,21 @@ function grantsLine(grants = {}) {
 }
 
 export function renderStudy(state, handlers) {
-  const rank = townRank(state);
+  // Built once and shared with every section: each entry works out its own
+  // status, and rebuilding the list per section was needless work per frame.
+  const studies = researchList(state);
 
   return el('div', {}, [
     el('h2.screen-title.serif', { text: 'The Study' }),
     el('p.screen-sub', {
-      text: `Town Hall rank ${rank} · monarch ${monarchRank(state)} · `
-        + `${state.research.completed.length} of ${researchList(state).length} studies done`,
+      text: `Town Hall rank ${townRank(state)} · monarch ${monarchRank(state)} · `
+        + `${state.research.completed.length} of ${studies.length} studies done`,
     }),
 
     activeCard(state, handlers),
     surveyCard(state, handlers),
     ...state.townHalls.map((hall, index) => promotionCard(state, hall, index, handlers)),
-    ...RESEARCH_SECTIONS.map((section) => sectionCard(state, section, handlers)),
+    ...RESEARCH_SECTIONS.map((section) => sectionCard(studies, section, handlers)),
     mapRewardsCard(state),
   ]);
 }
@@ -82,7 +84,7 @@ function activeCard(state, handlers) {
   const percent = (active.progress / active.total) * 100;
 
   return el('div.card', { style: { borderColor: 'var(--gold)' } }, [
-    el('div.card-title', { style: { color: 'var(--gold)' }, text: `Studying: ${active.id && researchName(state, active.id)}` }),
+    el('div.card-title', { style: { color: 'var(--gold)' }, text: `Studying: ${researchName(active.id)}` }),
     el('div.peace-bar', {}, [el('div', { style: { width: `${percent}%` } })]),
     el('div.kv', {}, [
       el('span', { text: 'Progress' }),
@@ -105,8 +107,8 @@ function activeCard(state, handlers) {
   ]);
 }
 
-function researchName(state, id) {
-  return researchList(state).find((entry) => entry.def.id === id)?.def.name ?? id;
+function researchName(id) {
+  return RESEARCH[id]?.name ?? id;
 }
 
 // ---------------------------------------------------------------------------
@@ -221,8 +223,8 @@ const STATUS_NOTE = {
   requires: null,
 };
 
-function sectionCard(state, section, handlers) {
-  const entries = researchList(state).filter((entry) => entry.def.section === section.id);
+function sectionCard(studies, section, handlers) {
+  const entries = studies.filter((entry) => entry.def.section === section.id);
   if (entries.length === 0) return null;
 
   // Known studies sink to the bottom; what you can do now floats to the top.
@@ -232,17 +234,17 @@ function sectionCard(state, section, handlers) {
   return el('div.card', {}, [
     el('div.card-title', { text: section.name }),
     el('div.pi-note', { text: section.blurb }),
-    ...entries.map((entry) => researchRow(state, entry, handlers)),
+    ...entries.map((entry) => researchRow(entry, handlers)),
   ]);
 }
 
-function researchRow(state, entry, handlers) {
+function researchRow(entry, handlers) {
   const { def, status, missing } = entry;
 
   const note = status === 'rank'
     ? `needs a rank ${def.rank} town hall`
     : status === 'requires'
-      ? `after ${missing.map((id) => researchName(state, id)).join(', ')}`
+      ? `after ${missing.map(researchName).join(', ')}`
       : STATUS_NOTE[status];
 
   return el('button.palette-item', {
@@ -293,4 +295,3 @@ function mapRewardsCard(state) {
   ]);
 }
 
-export { isResearched };

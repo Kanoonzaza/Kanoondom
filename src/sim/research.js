@@ -17,7 +17,7 @@ import { FACILITIES, facilityDef } from '../content/facilities.js';
 import { TOWN_HALL } from '../content/config.js';
 import { isActive } from './facilities.js';
 import { residentRates } from './residents.js';
-import { clearTerritoryFog } from './world.js';
+import { clearTerritoryFog, clearedTileCount } from './world.js';
 
 // ---------------------------------------------------------------------------
 // Town Hall rank
@@ -43,7 +43,7 @@ export function developmentPoints(state) {
   return Math.floor(
     state.residents.length * PROMOTION.perResident
     + facilities * PROMOTION.perFacility
-    + state.stats.tilesCleared / PROMOTION.tilesPerPoint
+    + clearedTileCount(state) / PROMOTION.tilesPerPoint
     + (state.stats.nestsCleared ?? 0) * PROMOTION.perNestCleared
   );
 }
@@ -318,7 +318,7 @@ export function checkMapRewards(state) {
   for (let index = 0; index < MAP_REWARDS.length; index++) {
     const reward = MAP_REWARDS[index];
     if (state.research.mapRewards.includes(index)) continue;
-    if (state.stats.tilesCleared < reward.tiles) continue;
+    if (clearedTileCount(state) < reward.tiles) continue;
 
     state.research.mapRewards.push(index);
     claimed.push({
@@ -330,4 +330,3 @@ export function checkMapRewards(state) {
   return claimed;
 }
 
-export { RESEARCH, MAP_REWARDS };
