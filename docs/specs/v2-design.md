@@ -410,7 +410,48 @@ there is no separate offline code path to drift out of sync.
 
 Schemas support the real counts; tables grow after launch.
 
-## 14. Deferred
+## 14. The mobile application layer
+
+The game was phone-*shaped* from the start — bottom navigation, sheets, pointer
+events, a 44px token — but it was a page on a dev server, not an app. This layer
+closes that, and two of its pieces are corrections to the founding promise
+rather than polish.
+
+**A hidden page is an absence.** The live loop clamps its frame delta to five
+seconds, so a tab left open but hidden for an hour credited five ticks and
+dropped the rest. Becoming hidden now saves and parks the loop; becoming visible
+runs the same catch-up boot does. Installed, where a page can stay alive for
+days, the old behaviour would have failed in exactly the situation the game
+exists for.
+
+**A long absence is walked in slices.** Up to 2.6 million ticks used to run in
+one call before first paint. It is now chunked to roughly a frame of work each,
+with a progress card. Measured: 30 days in 341ms, longest block 38ms.
+
+**Costing nothing when nothing moves.** The loop stops asking for frames when
+the game is paused or the page is hidden; the map repaints only when the clock
+has moved, and never under an open sheet; biome and fog are cached to an
+offscreen layer and blitted once instead of up to 9,216 fills. Paused in the
+foreground is measurably zero frames, zero ticks, zero canvas work.
+
+**Placement is staged, not committed.** A tap positions a building and a bar
+asks, because a phone has no hover and a finger covers the footprint it is
+meant to be judging.
+
+**The back gesture belongs to the game.** Three history entries at most — World,
+tab, sheet — with `popstate` as the only authority, so a Close button and the
+device back gesture are the same event.
+
+**The save has a second slot**, refreshed daily and always before a migration,
+plus export/import/reset in Settings. One localStorage key on a platform that
+clears storage for sites unopened for a week is not a place to keep months of
+somebody's evenings.
+
+**It installs and launches offline.** Precached shell, cache-first, updates only
+when the player accepts. Every path relative, because the deploy target is a
+GitHub Pages subpath.
+
+## 15. Deferred
 
 Underground Arena · Monster Fusion Lab · Trophy Room · Collector · Kairo Room ·
 endgame/New Game+ · anything requiring a server.

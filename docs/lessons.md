@@ -237,6 +237,49 @@ module boots; it is how every number in this entry was measured.
 
 ---
 
+## 14. Delete by parsed block, never by span
+
+The mobile pass removed ~110 lines of CSS that nothing referenced. The first
+attempt cut from one section comment to the next, which looked tidy and took the
+overlay, sheet, toast, button and palette rules with it — 268 deletions instead
+of 110. The page still loaded. Nothing threw. The sheets simply had no styling,
+the tap targets collapsed to 21px, and the toast z-index fix silently stopped
+applying.
+
+It was caught in the browser, by a computed style that read `auto` where it
+should have read `50`, one step after the edit.
+
+The second attempt removed one rule at a time: find the selector, brace-match to
+its end, and refuse the whole edit if any rule on a must-keep list has gone or
+the braces no longer balance. It refused on the first run — correctly, because
+my guard counted substrings and `.tab .badge` contains `.tab` — which is the
+right way round for a guard to be wrong.
+
+**Rule.** A destructive edit needs a machine-checked postcondition, not a
+careful eye. "Everything on this list must still exist, and the braces must
+still balance" costs four lines and catches the whole class.
+
+---
+
+## 15. The recurring one, finally made structural
+
+Entry 6 is about hard-coded lists going stale — the build palette, then the
+balance bot's build list, three separate times. The service worker needed one
+more: every file the app loads, or an installed player with no signal gets a
+blank screen.
+
+So this list is generated (`tools/build-precache.mjs`) and committed, and a test
+walks the tree again and fails if the committed copy has drifted. It earned
+itself within the hour: normalising some line endings changed the asset bytes,
+the content hash moved, and the test caught the stale list before it shipped.
+
+**Rule.** When a list must mirror something on disk, do not maintain it and do
+not trust yourself to regenerate it. Generate it, commit it, and let a test
+compare the two. The failure mode this replaces is invisible locally and only
+appears in the one environment you cannot easily reach.
+
+---
+
 ## The one that governs all of them
 
 **Measure before claiming, and measure again after fixing.** Every number in
