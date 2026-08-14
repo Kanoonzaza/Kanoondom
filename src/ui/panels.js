@@ -15,6 +15,18 @@ import { el, mount, clear } from './dom.js';
 let closeHandler = null;
 let returnFocusTo = null;
 
+/**
+ * How this module talks to the back stack, without knowing anything about it.
+ *
+ * ui/nav.js installs the bridge; if nothing does, sheets simply close directly
+ * and the game behaves exactly as it did before there was any history at all.
+ */
+let historyBridge = null;
+
+export function setHistoryBridge(bridge) {
+  historyBridge = bridge;
+}
+
 const reducedMotion = () =>
   globalThis.matchMedia?.('(prefers-reduced-motion: reduce)').matches === true;
 
@@ -51,9 +63,26 @@ export function openSheet(content, { onClose } = {}) {
   app?.setAttribute('inert', '');
 
   if (!wasOpen) sheet.focus({ preventScroll: true });
+  historyBridge?.opened();
 }
 
+/**
+ * Close a sheet because somebody asked to — a button, the scrim, a swipe, or
+ * finishing an action.
+ *
+ * This goes through the BACK STACK rather than closing directly, so that a
+ * Close button and the device back gesture are the same event. Otherwise the
+ * stack keeps an entry for a sheet that is no longer on screen, and the next
+ * back press appears to do nothing.
+ */
 export function closeSheet() {
+  if (!isSheetOpen()) return;
+  if (historyBridge?.requestClose()) return;   // popstate will finish the job
+  closeSheetNow();
+}
+
+/** Actually take the sheet off the screen. Only `popstate` and the line above. */
+export function closeSheetNow() {
   const overlay = document.getElementById('overlay');
   if (overlay.classList.contains('hidden')) return;
 

@@ -15,6 +15,7 @@ import {
 import { el, mount, short } from './ui/dom.js';
 import { createMapView, tileSheet, buildSheet, centreOn, mapMode } from './ui/map.js';
 import { openSheet, closeSheet, isSheetOpen, toast } from './ui/panels.js';
+import { initNav, goToScreen } from './ui/nav.js';
 import { renderPeople, residentSheet } from './ui/people.js';
 import { renderStudy } from './ui/study.js';
 import { renderForge, skillSheet } from './ui/forge.js';
@@ -108,6 +109,8 @@ function boot() {
   speed = state.settings.defaultSpeed ?? 1;
 
   buildTabs();
+  // Before anything can open a sheet: the welcome panel needs a stack to sit on.
+  initNav({ onScreen: showScreen });
   // Paint before the first animation frame: a backgrounded tab never gets one.
   paint(performance.now());
   resume();
@@ -223,7 +226,7 @@ function settle(welcome) {
   // actually teaches (which store filled, and when) was the easiest to miss.
   if (worthShowing(welcome)) {
     openSheet(welcomeSheet(state, welcome, {
-      onGoTo: (screen) => { view.screen = screen; markDirty(); },
+      onGoTo: goToScreen,
     }, closeSheet));
   }
   saveToStorage(state);
@@ -392,7 +395,7 @@ function handleReport(report) {
       rows: [['', 'Better at their trade, and room for another skill.', 'pos']],
       kind: 'good',
       ms: 6000,
-      onTap: () => { view.screen = 'forge'; markDirty(); },
+      onTap: () => goToScreen('forge'),
     });
     markDirty();
   }
@@ -406,7 +409,7 @@ function handleReport(report) {
       ],
       kind: 'good',
       ms: 9000,
-      onTap: () => { view.screen = 'people'; markDirty(); },
+      onTap: () => goToScreen('people'),
     });
     markDirty();
   }
@@ -420,7 +423,7 @@ function handleReport(report) {
       ],
       kind: 'good',
       ms: 9000,
-      onTap: () => { view.screen = 'watch'; markDirty(); },
+      onTap: () => goToScreen('watch'),
     });
     markDirty();
   }
@@ -872,7 +875,7 @@ function announceEgg(egg) {
     ],
     kind: 'good',
     ms: 10000,
-    onTap: () => { view.screen = 'watch'; markDirty(); },
+    onTap: () => goToScreen('watch'),
   });
 }
 
@@ -1228,13 +1231,19 @@ function buildTabs() {
     ...TABS.map((tab) =>
       el('button.tab', {
         'data-tab': tab.id,
-        on: { click: () => { view.screen = tab.id; markDirty(); } },
+        on: { click: () => goToScreen(tab.id) },
       }, [
         el('div.tab-icon', { text: tab.icon }),
         el('div', { text: tab.label }),
       ])
     )
   );
+}
+
+/** Put a screen on. Called by ui/nav.js once the back stack agrees. */
+function showScreen(id) {
+  view.screen = id;
+  markDirty();
 }
 
 function updateTabs() {
