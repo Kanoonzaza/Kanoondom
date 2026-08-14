@@ -10,8 +10,9 @@ import {
   hallRadius, zoneOf, zoneLabel, isZoneUnlocked, worldCentre,
 } from '../sim/world.js';
 import { BIOMES } from '../content/biomes.js';
-import { TILE, register, drawSprite } from './sprites.js';
+import { TILE, register, drawSprite, hasSprite } from './sprites.js';
 import { terrainTemplates, variantCount } from '../content/art/terrain-art.js';
+import { facilityTemplates } from '../content/art/facilities-art.js';
 import { isSheetOpen } from './panels.js';
 import { dayPeriod, isFullMoon } from '../state.js';
 import {
@@ -109,6 +110,7 @@ const UNLOCKED_TINT = 'rgba(0,0,0,0.45)';
 // nests, worn ground — stays a live pass below, where it costs what it is worth.
 
 register(terrainTemplates());
+register(facilityTemplates());
 
 /** Two whole-world sheets, one per animation frame. */
 let terrainSheets = null;
@@ -334,30 +336,54 @@ export function drawMap(canvas, state) {
     const h = def.size.h * size;
     const sx = screenX(ox);
     const sy = screenY(oy);
-
     const finished = facility.built;
-    ctx.fillStyle = finished ? 'rgba(28,34,50,0.92)' : 'rgba(28,34,50,0.55)';
-    ctx.fillRect(sx, sy, w, h);
-    ctx.strokeStyle = finished ? '#d9a441' : 'rgba(217,164,65,0.5)';
-    ctx.lineWidth = 1.5;
-    ctx.strokeRect(sx + 0.5, sy + 0.5, w - 1, h - 1);
+    const footprint = `${def.size.w}x${def.size.h}`;
 
-    if (size >= 5) {
-      ctx.font = `${Math.min(w, h) * 0.62}px system-ui`;
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
-      ctx.fillText(def.icon, sx + w / 2, sy + h / 2);
-      ctx.textAlign = 'left';
+    // A shadow on the ground, so a building sits on the land rather than
+    // floating over it. Cheap, and it does more for depth than anything else.
+    ctx.fillStyle = 'rgba(0,0,0,0.22)';
+    ctx.fillRect(sx + size * 0.12, sy + h - size * 0.18, w - size * 0.24, size * 0.22);
+
+    if (hasSprite(`facility:${facility.id}`)) {
+      if (!finished) ctx.globalAlpha = 0.75;
+      drawSprite(ctx, `facility:${facility.id}`, sx, sy, w, h, ambientFrame);
+      ctx.globalAlpha = 1;
+    } else {
+      // No art for this one yet: the old box, so nothing ever vanishes.
+      ctx.fillStyle = finished ? 'rgba(28,34,50,0.92)' : 'rgba(28,34,50,0.55)';
+      ctx.fillRect(sx, sy, w, h);
+      ctx.strokeStyle = '#d9a441';
+      ctx.lineWidth = 1.5;
+      ctx.strokeRect(sx + 0.5, sy + 0.5, w - 1, h - 1);
     }
+
+    // Still going up: scaffolding over it, and how far along it is.
     if (!finished) {
+      drawSprite(ctx, `overlay:scaffold:${footprint}`, sx, sy, w, h, 0);
       const progress = 1 - facility.buildTicksRemaining / def.buildTicks;
+      ctx.fillStyle = 'rgba(0,0,0,0.55)';
+      ctx.fillRect(sx, sy + h - 3, w, 3);
       ctx.fillStyle = '#d9a441';
-      ctx.fillRect(sx, sy + h - 2, w * progress, 2);
+      ctx.fillRect(sx, sy + h - 3, w * progress, 3);
     }
-    if (facility.level > 1 && size >= 7) {
-      ctx.fillStyle = '#d9a441';
-      ctx.font = '600 9px system-ui';
-      ctx.fillText(`L${facility.level}`, sx + 2, sy + 9);
+
+    // Broken: cracks across it, and a red cast so it reads at a glance.
+    if (facility.damaged) {
+      drawSprite(ctx, `overlay:cracks:${footprint}`, sx, sy, w, h, 0);
+      ctx.fillStyle = 'rgba(193,75,58,0.28)';
+      ctx.fillRect(sx, sy, w, h);
+    }
+
+    // Levels as pips along the eaves rather than a text label: readable at a
+    // glance, and it does not need a font at four pixels a tile.
+    if (facility.level > 1 && size >= 6) {
+      const pip = Math.max(2, Math.round(size * 0.16));
+      for (let i = 0; i < facility.level - 1; i++) {
+        ctx.fillStyle = '#241f2b';
+        ctx.fillRect(sx + 2 + i * (pip + 2), sy + 2, pip + 1, pip + 1);
+        ctx.fillStyle = '#f2cd72';
+        ctx.fillRect(sx + 2 + i * (pip + 2), sy + 2, pip, pip);
+      }
     }
   }
 
@@ -366,11 +392,20 @@ export function drawMap(canvas, state) {
     const def = facilityDef(mapMode.building);
     const { x: hx, y: hy } = mapMode.hover;
     const allowed = canPlace(state, hx, hy, mapMode.building).ok;
-    ctx.fillStyle = allowed ? 'rgba(124,196,127,0.45)' : 'rgba(224,104,95,0.45)';
-    ctx.fillRect(screenX(hx), screenY(hy), def.size.w * size, def.size.h * size);
+    const gw = def.size.w * size;
+    const gh = def.size.h * size;
+
+    // The actual building, half-there, so the player is judging the thing they
+    // are about to build rather than a coloured rectangle.
+    ctx.globalAlpha = 0.55;
+    drawSprite(ctx, `facility:${mapMode.building}`, screenX(hx), screenY(hy), gw, gh, ambientFrame);
+    ctx.globalAlpha = 1;
+
+    ctx.fillStyle = allowed ? 'rgba(124,196,127,0.32)' : 'rgba(224,104,95,0.42)';
+    ctx.fillRect(screenX(hx), screenY(hy), gw, gh);
     ctx.strokeStyle = allowed ? '#7cc47f' : '#e0685f';
     ctx.lineWidth = 2;
-    ctx.strokeRect(screenX(hx), screenY(hy), def.size.w * size, def.size.h * size);
+    ctx.strokeRect(screenX(hx), screenY(hy), gw, gh);
 
     // Its reach, so the player can see what the aura would cover.
     if (def.aura) {

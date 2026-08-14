@@ -18,6 +18,8 @@ import { validateTemplate, parseColour, TILE } from '../src/ui/sprites.js';
 import { P } from '../src/content/art/palette.js';
 import { TERRAIN_ART, terrainTemplates, variantCount } from '../src/content/art/terrain-art.js';
 import { BIOMES } from '../src/content/biomes.js';
+import { facilityTemplates, facilityArtIds } from '../src/content/art/facilities-art.js';
+import { FACILITIES } from '../src/content/facilities.js';
 
 test('every terrain template is a well-formed grid', () => {
   const templates = terrainTemplates();
@@ -116,5 +118,83 @@ test('a broken template is reported, not drawn', () => {
   assert.deepEqual(
     validateTemplate('fine', { palette: { a: '#fff' }, frames: [['aa', 'aa']] }), [],
     'and a good template is left alone'
+  );
+});
+
+// ---------------------------------------------------------------------------
+// Buildings
+// ---------------------------------------------------------------------------
+
+test('every facility in the game has artwork', () => {
+  // A facility with no sprite falls back to a grey box on the map. That is a
+  // safety net, not a plan: shipping one would look like a bug, and nobody
+  // would notice until somebody researched it.
+  const drawn = new Set(facilityArtIds());
+  const missing = Object.keys(FACILITIES).filter((id) => !drawn.has(id));
+  assert.deepEqual(missing, [], `these facilities have no art: ${missing.join(', ')}`);
+});
+
+test('every facility sprite is exactly its footprint', () => {
+  const templates = facilityTemplates();
+
+  for (const [id, def] of Object.entries(FACILITIES)) {
+    const template = templates[`facility:${id}`];
+    assert.ok(template, `${id} has no template`);
+
+    const frame = template.frames[0];
+    assert.equal(
+      frame[0].length, def.size.w * TILE,
+      `${id} is ${frame[0].length}px wide but stands on ${def.size.w} tiles`
+    );
+    assert.equal(
+      frame.length, def.size.h * TILE,
+      `${id} is ${frame.length}px tall but stands on ${def.size.h} tiles`
+    );
+  }
+});
+
+test('every facility template is a well-formed grid', () => {
+  for (const [id, template] of Object.entries(facilityTemplates())) {
+    const problems = validateTemplate(id, template);
+    assert.deepEqual(problems, [], problems.join('\n'));
+  }
+});
+
+test('there is a scaffold and a crack overlay for every footprint in use', () => {
+  const templates = facilityTemplates();
+  const footprints = new Set(
+    Object.values(FACILITIES).map((def) => `${def.size.w}x${def.size.h}`)
+  );
+
+  for (const key of footprints) {
+    assert.ok(templates[`overlay:scaffold:${key}`], `nothing to show while a ${key} goes up`);
+    assert.ok(templates[`overlay:cracks:${key}`], `nothing to show when a ${key} breaks`);
+  }
+});
+
+test('a building has a silhouette rather than being a solid block', () => {
+  // A roof narrower than the walls is most of what makes a building read as a
+  // building. If the top row were full width it would just be a box again,
+  // which is exactly what this whole redesign is replacing.
+  const house = facilityTemplates()['facility:plot_s'].frames[0];
+  const solid = (row) => [...row].filter((char) => char !== '.').length;
+
+  assert.ok(
+    solid(house[0]) < solid(house[house.length - 1]),
+    'the roof should be narrower than the base'
+  );
+  assert.ok(solid(house[0]) > 0, 'but the roof is still drawn');
+});
+
+test('the signs that tell buildings apart are big enough to read', () => {
+  // The first draft of these was three pixels tall and sat on the roof. Every
+  // building looked like every other building with a gold speck on it.
+  const templates = facilityTemplates();
+  const smithy = templates['facility:master_smithy'].frames[0];
+  const stable = templates['facility:monster_stable'].frames[0];
+
+  assert.notDeepEqual(
+    smithy, stable,
+    'two buildings of the same size and scheme must not draw identically'
   );
 });
