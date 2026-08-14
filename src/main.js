@@ -14,7 +14,7 @@ import {
 } from './sim/world.js';
 import { el, mount, short, duration } from './ui/dom.js';
 import { createMapView, tileSheet, buildSheet, centreOn, mapMode } from './ui/map.js';
-import { openSheet, closeSheet, toast } from './ui/panels.js';
+import { openSheet, closeSheet, isSheetOpen, toast } from './ui/panels.js';
 import { renderPeople, residentSheet } from './ui/people.js';
 import { renderStudy } from './ui/study.js';
 import { renderForge, skillSheet } from './ui/forge.js';
@@ -50,12 +50,26 @@ const view = { screen: 'world' };
 
 let screenDirty = true;
 let hudDirty = true;
-let rendering = false;
+let paintQueued = false;
 
+/**
+ * Ask for a repaint. Flags only — the loop paints on its next frame.
+ *
+ * That coalescing is the whole point: a fast-forward that finishes four
+ * buildings and two studies at once used to cost six full screen teardowns in
+ * a single frame, because `handleReport` calls this once per event. Now it
+ * costs one. When the loop is parked — a paused game, or a hidden page — a
+ * single microtask stands in for the missing frame.
+ */
 function markDirty() {
   screenDirty = true;
   hudDirty = true;
-  if (!rendering && state) render(performance.now());
+  if (rafId !== 0 || paintQueued || !state) return;
+  paintQueued = true;
+  queueMicrotask(() => {
+    paintQueued = false;
+    if (state) paint(performance.now());
+  });
 }
 
 // --- boot ------------------------------------------------------------------
@@ -77,7 +91,34 @@ function boot() {
 
   speed = state.settings.defaultSpeed ?? 1;
 
-  // Bring the kingdom up to the present before anything is drawn.
+  buildTabs();
+  resume();
+  // Paint before the first animation frame: a backgrounded tab never gets one.
+  paint(performance.now());
+
+  document.addEventListener('visibilitychange', onVisibilityChange);
+  window.addEventListener('pagehide', () => saveToStorage(state));
+
+  // A rotation or a split-screen resize changes how big the canvas is, and the
+  // map is the one thing on the page that cannot lay itself out again in CSS.
+  const relayout = () => { mapView?.redraw(); markDirty(); };
+  globalThis.addEventListener('resize', relayout);
+  globalThis.addEventListener('orientationchange', relayout);
+}
+
+/**
+ * Bring the kingdom to the present, then let time run again.
+ *
+ * Boot and a return from a hidden page take the SAME path, and that is the
+ * point. A backgrounded page is not a paused game: it is an absence, and an
+ * absence is the one thing this whole game is built around. Until this existed
+ * the live loop clamped its frame delta to five seconds, so returning to a tab
+ * that had sat hidden for an hour credited five ticks and quietly dropped the
+ * other fifty-nine minutes. Installed on a phone — where the page can stay
+ * alive for days — that would have broken the promise outright, in exactly
+ * the situation this game is meant to be best at.
+ */
+function resume() {
   let welcome = null;
   try {
     welcome = catchUp(state);
@@ -93,16 +134,20 @@ function boot() {
     }, closeSheet));
   }
 
-  buildTabs();
+  lastSavedSeason = seasonIndex(state);
+  wakeLoop();
   markDirty();
-  // Paint before the first animation frame: a backgrounded tab never gets one.
-  render(performance.now());
-  requestAnimationFrame(loop);
+}
 
-  document.addEventListener('visibilitychange', () => {
-    if (document.visibilityState === 'hidden') saveToStorage(state);
-  });
-  window.addEventListener('pagehide', () => saveToStorage(state));
+function onVisibilityChange() {
+  if (document.visibilityState === 'hidden') {
+    // Save FIRST. `lastSaveTime` is what the journey back measures from, and a
+    // page that has just been hidden may never be given another moment to run.
+    saveToStorage(state);
+    stopLoop();
+  } else {
+    resume();
+  }
 }
 
 // --- the loop --------------------------------------------------------------
@@ -110,10 +155,47 @@ function boot() {
 let lastFrame = 0;
 let tickAccumulator = 0;
 let lastMapDraw = 0;
+let lastHudRefresh = 0;
+let mapDrawnAtTick = -1;
 let lastSavedSeason = 0;
+let rafId = 0;
+
+/** Is anything actually moving? If not, the loop has no reason to run. */
+function needsFrames() {
+  return speed > 0 || mapView?.animating?.() === true;
+}
+
+/**
+ * Restart a parked loop. Idempotent, and never while the page is hidden.
+ *
+ * Only for restarting. The running loop re-arms itself inline below, because
+ * clearing `lastFrame` here is what makes a restart not bill the player for the
+ * pause — and doing that on every frame instead meant every frame measured a
+ * delta of zero, so the clock sat still at speed 1 while burning 60fps.
+ */
+function wakeLoop() {
+  if (rafId !== 0 || document.visibilityState === 'hidden') return;
+  lastFrame = 0;
+  rafId = requestAnimationFrame(loop);
+}
+
+/**
+ * Stop asking for frames.
+ *
+ * A paused game in the foreground, and any hidden page, should cost a phone
+ * nothing at all: no timers, no canvas, no DOM. The accumulator is cleared
+ * deliberately — the span we were not running for is not owed to the player
+ * as loose ticks. It is an absence, and `resume()` pays it in full.
+ */
+function stopLoop() {
+  if (rafId !== 0) cancelAnimationFrame(rafId);
+  rafId = 0;
+  lastFrame = 0;
+  tickAccumulator = 0;
+}
 
 function loop(now) {
-  requestAnimationFrame(loop);
+  rafId = 0;
 
   if (lastFrame === 0) lastFrame = now;
   const deltaSeconds = Math.min((now - lastFrame) / 1000, 5);
@@ -128,7 +210,12 @@ function loop(now) {
     }
   }
 
-  render(now);
+  paint(now);
+  // Re-arm directly, keeping the frame delta continuous. Only while something
+  // is actually moving: a paused game in the foreground asks for no frames.
+  if (needsFrames() && document.visibilityState !== 'hidden') {
+    rafId = requestAnimationFrame(loop);
+  }
 }
 
 function handleReport(report) {
@@ -251,15 +338,6 @@ function handleReport(report) {
   }
 }
 
-function render(now) {
-  rendering = true;
-  try {
-    paint(now);
-  } finally {
-    rendering = false;
-  }
-}
-
 function paint(now) {
   // Never leave the player holding a facility they no longer have in stock —
   // possible after a reset, a save import, or placing the last one.
@@ -271,18 +349,29 @@ function paint(now) {
   if (hudDirty) {
     renderHud();
     hudDirty = false;
-  } else {
-    refreshClock();
+    lastHudRefresh = now;
+  } else if (now - lastHudRefresh >= 1000) {
+    // Once a second is as often as any of these numbers can change — one tick
+    // is one second. Sixty times a second was sixty times the DOM writes for
+    // the same five digits.
+    refreshHudValues();
+    lastHudRefresh = now;
   }
 
   if (screenDirty) {
     renderScreen();
     screenDirty = false;
     lastMapDraw = now;
-  } else if (mapView && now - lastMapDraw > 250) {
-    // Cheap repaint so the map stays live without rebuilding the DOM.
+    mapDrawnAtTick = state.time.totalTicks;
+  } else if (mapView && !isSheetOpen()
+      && state.time.totalTicks !== mapDrawnAtTick && now - lastMapDraw > 250) {
+    // Cheap repaint so the map stays live without rebuilding the DOM — skipped
+    // when nothing has ticked (a paused game draws nothing at all) and while a
+    // sheet covers the map, since painting under the scrim is pure waste. Pans
+    // and pinches repaint themselves and never wait for this.
     mapView.redraw();
     lastMapDraw = now;
+    mapDrawnAtTick = state.time.totalTicks;
   }
 }
 
@@ -291,30 +380,54 @@ function paint(now) {
 /** The five the player watches most. The rest live on the Realm screen. */
 const HUD_RESOURCES = ['copper', 'wood', 'grass', 'food', 'ore'];
 
+/**
+ * Live nodes for the five resource tiles, so their numbers can be written in
+ * place instead of rebuilt.
+ *
+ * The HUD is the only part of the page that changes on every single tick, and
+ * it had the opposite problem in both directions: `refreshClock` wrote to the
+ * DOM sixty times a second for a clock that moves once a second, while the
+ * resource counters — the numbers a player actually watches — were only
+ * rebuilt when something ELSE happened to mark the screen dirty, so at speed 1
+ * they sat frozen for minutes at a time.
+ */
+const hudCells = new Map();
+const lastWritten = new WeakMap();
+
+/** Write only if it actually changed. The cheapest update is the one skipped. */
+function setText(node, value) {
+  if (!node || lastWritten.get(node) === value) return;
+  lastWritten.set(node, value);
+  node.textContent = value;
+}
+
+function setWidth(node, value) {
+  if (!node || lastWritten.get(node) === value) return;
+  lastWritten.set(node, value);
+  node.style.width = value;
+}
+
 function renderHud() {
-  const caps = storageCapacity(state);
-  const rates = productionRates(state);
+  hudCells.clear();
 
   mount(
     document.getElementById('hud-resources'),
     ...HUD_RESOURCES.map((id) => {
-      const value = state.resources[id];
-      const full = value >= caps[id] - 0.5;
-      const perSeason = rates[id] * TICKS_PER_SEASON;
-      return el('div.res', { class: full ? 'full' : '' }, [
+      const value = el('div.res-value');
+      const cap = el('div.res-cap');
+      const fill = el('div', { style: { background: 'var(--gold)' } });
+      const wrap = el('div.res', {}, [
         el('div.res-icon', { text: RESOURCES[id].icon }),
-        el('div.res-value', { text: short(value) }),
-        el('div.res-cap', { text: full ? 'FULL' : `+${perSeason.toFixed(0)}/s` }),
-        el('div.res-bar', {}, [
-          el('div', {
-            style: { width: `${Math.min(100, (value / caps[id]) * 100)}%`, background: 'var(--gold)' },
-          }),
-        ]),
+        value,
+        cap,
+        el('div.res-bar', {}, [fill]),
       ]);
+      hudCells.set(id, { wrap, value, cap, fill });
+      return wrap;
     })
   );
 
-  refreshClock();
+  refreshHudValues();
 
   mount(
     document.getElementById('speeds'),
@@ -329,19 +442,45 @@ function renderHud() {
   );
 }
 
+/** Everything in the HUD that moves as time passes. Runs at 1Hz. */
+function refreshHudValues() {
+  const caps = storageCapacity(state);
+  const rates = productionRates(state);
+
+  for (const id of HUD_RESOURCES) {
+    const cell = hudCells.get(id);
+    if (!cell) continue;
+    const value = state.resources[id];
+    const full = value >= caps[id] - 0.5;
+
+    setText(cell.value, short(value));
+    setText(cell.cap, full ? 'FULL' : `+${(rates[id] * TICKS_PER_SEASON).toFixed(0)}/s`);
+    setWidth(cell.fill, `${Math.min(100, (value / caps[id]) * 100).toFixed(1)}%`);
+    cell.wrap.classList.toggle('full', full);
+  }
+
+  refreshClock();
+}
+
 function refreshClock() {
-  document.getElementById('clock-season').textContent = seasonName(state);
-  document.getElementById('clock-year').textContent = `Year ${yearOf(state)}`;
-  document.getElementById('clock-period').textContent =
-    `${isFullMoon(state) ? '🌕' : ''} ${dayPeriod(state).name}`;
-  document.getElementById('season-bar').style.width =
-    `${(ticksIntoSeason(state) / TICKS_PER_SEASON) * 100}%`;
+  setText(document.getElementById('clock-season'), seasonName(state));
+  setText(document.getElementById('clock-year'), `Year ${yearOf(state)}`);
+  setText(
+    document.getElementById('clock-period'),
+    `${isFullMoon(state) ? '🌕' : ''} ${dayPeriod(state).name}`
+  );
+  setWidth(
+    document.getElementById('season-bar'),
+    `${((ticksIntoSeason(state) / TICKS_PER_SEASON) * 100).toFixed(1)}%`
+  );
 }
 
 function setSpeed(value) {
   speed = value;
   state.settings.defaultSpeed = value;
   hudDirty = true;
+  // Coming off pause has to restart the clock: the loop parked itself.
+  wakeLoop();
 }
 
 // --- screens ---------------------------------------------------------------
@@ -917,5 +1056,6 @@ globalThis.kingdom = {
     saveToStorage(state);
     centreOn(state.townHalls[0].x, state.townHalls[0].y);
     markDirty();
+    wakeLoop();
   },
 };

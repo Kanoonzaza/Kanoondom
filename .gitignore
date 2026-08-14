@@ -1,2 +1,7 @@
 node_modules/
 .DS_Store
+
+# Local verification harness (see docs/lessons.md): a copy of index.html with
+# rAF and visibility stubbed, so the game loop can be driven in a preview pane
+# that never composites. Never shipped.
+verify.html

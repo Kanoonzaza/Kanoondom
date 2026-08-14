@@ -222,9 +222,18 @@ main {
   touch-action: none;          /* we handle pan and pinch ourselves */
 }
 
+/* The map is sized by CSS and ONLY by CSS.
+   With a height coming from the canvas's own width/height attributes, the
+   element's size depended on its backing store and its backing store was set
+   from its size — a loop that settles somewhere arbitrary, and that drew the
+   first frame at a 360px fallback because nothing was laid out yet. A stated
+   height breaks the loop and lets a ResizeObserver do the rest.
+   Capped so the Peace card underneath stays discoverable on a short phone. */
 #world-canvas {
   display: block;
   width: 100%;
+  height: 420px;
+  height: min(52dvh, 420px);
   image-rendering: pixelated;  /* crisp tiles, no blur when zoomed in */
   cursor: grab;
 }

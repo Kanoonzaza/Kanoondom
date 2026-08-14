@@ -6,7 +6,7 @@
 
 import { el, short } from './dom.js';
 import {
-  biomeAt, tileInfo, inBounds, isCleared, inTerritory, wastelandAt,
+  biomeAt, tileInfo, inBounds, isCleared, clearedTileCount,
   hallRadius, zoneOf, zoneLabel, isZoneUnlocked, worldCentre,
 } from '../sim/world.js';
 import { BIOMES } from '../content/biomes.js';
@@ -36,8 +36,94 @@ export const camera = {
   maxZoom: 22,
 };
 
-const FOG_FILL = '#141926';
 const UNLOCKED_TINT = 'rgba(0,0,0,0.45)';
+
+// ---------------------------------------------------------------------------
+// The terrain layer
+// ---------------------------------------------------------------------------
+//
+// Biome and fog are the only things on this map that cover EVERY tile, and
+// neither changes often: biome never changes at all (it is a pure function of
+// the seed) and fog lifts only when the player explores. Drawing them tile by
+// tile cost up to 9,216 fillRects per repaint at the widest zoom, several times
+// a second, for a picture that was usually identical to the last one.
+//
+// So they are painted once into an offscreen canvas at ONE PIXEL PER TILE and
+// blitted with a single drawImage. Every tile is a flat colour and the canvas
+// is already `image-rendering: pixelated`, so the scaled-up blit is the same
+// picture the loop drew, for a fraction of the work.
+//
+// Everything that is sparse or moves — facilities, the ghost, territory rings,
+// nests, worn ground — stays a live pass below, where it costs what it is worth.
+
+let terrainCanvas = null;
+let terrainKey = '';
+
+const FOG_RGB = [0x14, 0x19, 0x26];
+const rgbCache = new Map();
+
+function rgbOf(hex) {
+  let rgb = rgbCache.get(hex);
+  if (!rgb) {
+    const packed = Number.parseInt(hex.slice(1), 16);
+    rgb = [(packed >> 16) & 255, (packed >> 8) & 255, packed & 255];
+    rgbCache.set(hex, rgb);
+  }
+  return rgb;
+}
+
+/**
+ * Throw the cached layer away.
+ *
+ * Needed when the world itself is replaced — a reset, or an imported save —
+ * because the key below cannot tell two different worlds apart if they happen
+ * to share a seed and an amount of explored land.
+ */
+export function invalidateTerrain() {
+  terrainKey = '';
+}
+
+/**
+ * The terrain layer, rebuilt only when the world it draws has changed.
+ *
+ * The key is the seed plus the number of tiles brought to light. Fog is the
+ * only part of this picture that ever moves, `clearedCount` is maintained
+ * rather than counted (see sim/world.js), and it changes only on a player
+ * action — so this rebuild happens when somebody explores, and never on a tick.
+ */
+function terrainLayer(state) {
+  const key = `${state.seed}/${clearedTileCount(state)}`;
+  if (terrainCanvas && terrainKey === key) return terrainCanvas;
+
+  if (!terrainCanvas) {
+    terrainCanvas = document.createElement('canvas');
+    terrainCanvas.width = WORLD_TILES_X;
+    terrainCanvas.height = WORLD_TILES_Y;
+  }
+
+  const ctx = terrainCanvas.getContext('2d');
+  const image = ctx.createImageData(WORLD_TILES_X, WORLD_TILES_Y);
+  const data = image.data;
+
+  for (let y = 0; y < WORLD_TILES_Y; y++) {
+    for (let x = 0; x < WORLD_TILES_X; x++) {
+      // Unexplored is a flat dark field, so the shape of what you know reads
+      // clearly against what you do not.
+      const rgb = isCleared(state, x, y)
+        ? rgbOf(BIOMES[biomeAt(state, x, y)]?.colour ?? '#333333')
+        : FOG_RGB;
+      const at = (y * WORLD_TILES_X + x) * 4;
+      data[at] = rgb[0];
+      data[at + 1] = rgb[1];
+      data[at + 2] = rgb[2];
+      data[at + 3] = 255;
+    }
+  }
+
+  ctx.putImageData(image, 0, 0);
+  terrainKey = key;
+  return terrainCanvas;
+}
 
 export function zoomBy(factor) {
   camera.zoom = Math.max(camera.minZoom, Math.min(camera.maxZoom, camera.zoom * factor));
@@ -66,7 +152,10 @@ export function drawMap(canvas, state) {
 
   const cssWidth = canvas.clientWidth || 360;
   const cssHeight = canvas.clientHeight || 360;
-  if (canvas.width !== Math.round(cssWidth * dpr)) {
+  // Both dimensions, not just the width: a rotation can change the height alone
+  // and would otherwise leave the backing store stretched over the new shape.
+  if (canvas.width !== Math.round(cssWidth * dpr)
+      || canvas.height !== Math.round(cssHeight * dpr)) {
     canvas.width = Math.round(cssWidth * dpr);
     canvas.height = Math.round(cssHeight * dpr);
   }
@@ -86,30 +175,25 @@ export function drawMap(canvas, state) {
   const screenX = (tx) => halfW + (tx - camera.x) * size;
   const screenY = (ty) => halfH + (ty - camera.y) * size;
 
-  // --- tiles ---
-  for (let y = firstY; y <= lastY; y++) {
-    for (let x = firstX; x <= lastX; x++) {
-      const sx = screenX(x);
-      const sy = screenY(y);
+  // --- terrain: biome and fog, in one blit ---
+  const spanX = lastX - firstX + 1;
+  const spanY = lastY - firstY + 1;
+  ctx.imageSmoothingEnabled = false;
+  ctx.drawImage(
+    terrainLayer(state),
+    firstX, firstY, spanX, spanY,
+    screenX(firstX), screenY(firstY), spanX * size, spanY * size
+  );
 
-      const cleared = isCleared(state, x, y);
-      if (!cleared) {
-        // Unexplored: a flat dark field, so the shape of what you know reads
-        // clearly against what you do not.
-        ctx.fillStyle = FOG_FILL;
-        ctx.fillRect(sx, sy, size + 1, size + 1);
-        continue;
-      }
-
-      ctx.fillStyle = BIOMES[biomeAt(state, x, y)]?.colour ?? '#333';
-      ctx.fillRect(sx, sy, size + 1, size + 1);
-
-      const worn = wastelandAt(state, x, y);
-      if (worn > 0) {
-        ctx.fillStyle = `rgba(90,70,45,${0.65 * worn})`;
-        ctx.fillRect(sx, sy, size + 1, size + 1);
-      }
-    }
+  // --- worn ground: sparse, so walk what is worn rather than every tile ---
+  for (const [index, worn] of Object.entries(state.world.wasteland)) {
+    if (!(worn > 0)) continue;
+    const wx = Number(index) % WORLD_TILES_X;
+    const wy = Math.floor(Number(index) / WORLD_TILES_X);
+    if (wx < firstX || wx > lastX || wy < firstY || wy > lastY) continue;
+    if (!isCleared(state, wx, wy)) continue;
+    ctx.fillStyle = `rgba(90,70,45,${0.65 * worn})`;
+    ctx.fillRect(screenX(wx), screenY(wy), size + 1, size + 1);
   }
 
   // --- locked country, dimmed as a whole ---
@@ -275,7 +359,7 @@ export function tileAtPointer(canvas, clientX, clientY) {
  * Returns the wrapper; call `redraw()` on it to repaint.
  */
 export function createMapView(state, handlers) {
-  const canvas = el('canvas', { id: 'world-canvas', height: 420 });
+  const canvas = el('canvas', { id: 'world-canvas' });
   const wrap = el('div.map-wrap', {}, [
     canvas,
     el('div.map-controls', {}, [
@@ -300,6 +384,17 @@ export function createMapView(state, handlers) {
     drawMap(canvas, state);
   }
   wrap.redraw = redraw;
+
+  // Redraw whenever the canvas's box changes: a rotation, a split-screen drag,
+  // an on-screen keyboard — and, most importantly, the very first time the
+  // element is laid out at all. A page that loads while hidden has no layout
+  // yet, so the first draw would otherwise be stuck at a fallback size forever
+  // now that repaints only happen when something has actually changed.
+  if (typeof ResizeObserver === 'function') {
+    const observer = new ResizeObserver(() => redraw());
+    observer.observe(canvas);
+    wrap.stopObserving = () => observer.disconnect();
+  }
 
   // --- pointer handling: drag to pan, pinch to zoom, tap to inspect ---
   const pointers = new Map();

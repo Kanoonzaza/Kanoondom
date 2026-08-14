@@ -16,7 +16,7 @@
 
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { newGame } from '../src/state.js';
+import { newGame, serialize, deserialize } from '../src/state.js';
 import { advanceTicks } from '../src/sim/tick.js';
 import { catchUp } from '../src/sim/offline.js';
 import { clearTerritoryFog, worldCentre } from '../src/sim/world.js';
@@ -372,5 +372,61 @@ test('the panel can say when a store filled, not just that it did', () => {
   assert.ok(
     overflowed.some((id) => typeof welcome.filledSecondsAgo[id] === 'number'),
     'at least one should say how long ago it filled — that is what teaches storage'
+  );
+});
+
+// ---------------------------------------------------------------------------
+// A hidden page is an absence, not a pause
+// ---------------------------------------------------------------------------
+//
+// The live loop clamps its frame delta to five seconds, so a page that stays
+// alive but hidden for an hour cannot be caught up by ticking: it would credit
+// five seconds and silently drop the hour. The fix is to treat becoming hidden
+// as leaving and becoming visible as returning — the same catch-up the boot
+// path runs.
+//
+// These two tests pin that down. The first proves the two journeys agree; the
+// second proves the calendar stays frozen across the hidden one, because a
+// backgrounded tab must not age the kingdom any more than a closed one does.
+
+test('an hour spent hidden lands exactly where an hour spent closed does', () => {
+  const away = HOUR * 1000;
+
+  // Closed: the save goes to storage and comes back as a fresh object.
+  const closed = livingKingdom();
+  const reopened = deserialize(serialize(closed, 0));
+  const closedWelcome = catchUp(reopened, away);
+
+  // Hidden: the very same object is still in memory, never serialised.
+  const hidden = livingKingdom();
+  serialize(hidden, 0);                  // what saving on `visibilitychange` does
+  const hiddenWelcome = catchUp(hidden, away);
+
+  assert.deepEqual(
+    snapshot(hidden), snapshot(reopened),
+    'a page that was hidden and a page that was closed must return to the same kingdom'
+  );
+  assert.deepEqual(
+    hiddenWelcome.gained, closedWelcome.gained,
+    'and must be told they earned the same things while they were gone'
+  );
+  assert.equal(hiddenWelcome.awaySeconds, closedWelcome.awaySeconds);
+});
+
+test('time spent hidden does not age the kingdom', () => {
+  const state = livingKingdom();
+  advanceTicks(state, 600);              // some real play first
+  const playedTo = state.time.calendarTicks;
+
+  serialize(state, 0);
+  catchUp(state, 8 * HOUR * 1000);
+
+  assert.equal(
+    state.time.calendarTicks, playedTo,
+    'the calendar only moves while somebody is playing — a hidden tab is not playing'
+  );
+  assert.ok(
+    state.time.totalTicks > playedTo,
+    'but the simulation clock did run, or nothing would have grown'
   );
 });

@@ -199,6 +199,44 @@ symptom was real every time; the question was wrong from the start.
 
 ---
 
+## 13. A test suite cannot see a game loop
+
+M1 rewrote the clock's plumbing: the loop parks itself when the page is hidden
+or the game is paused, and re-arms only while something is moving. All 314 tests
+passed. The balance run passed. The game did not run at all.
+
+`wakeLoop()` cleared `lastFrame` so that a restart would not bill the player for
+the pause — correct — and the running loop called `wakeLoop()` to ask for its
+next frame. So every frame cleared `lastFrame`, every frame therefore measured a
+delta of zero, and the clock stood perfectly still while burning sixty frames a
+second. Nothing in `tests/` could have caught it: not one test calls
+`requestAnimationFrame`, because the simulation deliberately knows nothing about
+frames. It took four seconds in a real browser — five ticks expected, zero
+observed.
+
+The same session found a second one of exactly this shape. Making map repaints
+conditional was a large win (a fully zoomed-out redraw went from up to 9,216
+`fillRect`s to a single blit), but the unconditional 250ms repaint it replaced
+had been quietly papering over a sizing bug: the canvas took its height from its
+own backing store while its backing store was computed from its height. The
+first draw landed on a 360px fallback and, with repaints now conditional,
+nothing ever corrected it. The fix was to state the height in CSS and let a
+`ResizeObserver` handle the rest — which is also what makes rotation work.
+
+**Rule.** Anything driven by frames, layout, visibility or input has to be
+watched in a browser before it is called done. Two of the three checks in this
+project — `npm test` and `npm run balance` — run headless by design, and a
+headless run cannot tell a working loop from a stopped one.
+
+**Corollary, learned the hard way.** When the preview pane is not displayed it
+does not composite, so `requestAnimationFrame` never fires and
+`document.visibilityState` reports `hidden` forever. A game that correctly
+refuses to burn frames while hidden is then indistinguishable from a broken one.
+`verify.html` (gitignored) is a copy of `index.html` that stubs both before the
+module boots; it is how every number in this entry was measured.
+
+---
+
 ## The one that governs all of them
 
 **Measure before claiming, and measure again after fixing.** Every number in
