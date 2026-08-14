@@ -13,7 +13,7 @@ finished a study, your gear has learned from the town's trade, and somebody may
 have been born.
 
 Plain HTML, CSS and ES modules. No framework, no build step, nothing fetched at
-runtime.
+runtime. It installs to a phone's home screen and opens with no signal at all.
 
 ## Playing it
 
@@ -28,9 +28,19 @@ node server.js 8778
 ```
 
 then open <http://localhost:8778>. The server exists only because ES modules
-will not load over `file://`; it serves static files and nothing else.
+will not load over `file://`; it serves static files and nothing else. It prints
+a LAN address too, so a phone on the same wifi can open it.
 
-Phone-first — it fits a 375px screen — but it is fine on a desktop.
+Phone-first, and meant it: bottom navigation, 44px targets, sheets you can swipe
+away, a map you pan and pinch, and the device back gesture wired to close what
+is in front of you rather than leave the game.
+
+### On a phone, properly
+
+Served over HTTPS the game is installable. Add it to the home screen and it runs
+without browser furniture, launches offline, and — the part that matters on
+iOS — stops being subject to Safari clearing the storage of sites you have not
+opened in a week. Settings has an export button for everything else.
 
 ## The promise, precisely
 
@@ -108,9 +118,20 @@ sources and keeps an open-questions section per system.
 ## Working on it
 
 ```bash
-npm test          # 312 tests, run serially
+npm test          # run serially: wall-clock assertions flake in parallel
 npm run balance   # headless play: hours of it, checked end to end
+npm run icons     # redraw the home-screen icons
+npm run precache  # regenerate the service worker's asset list
 ```
+
+`sw-precache.js` is generated and committed, and `tests/pwa.test.js` walks the
+tree again and fails if it has drifted. Forgetting to regenerate it would break
+nothing locally and everything for an installed player with no signal, which is
+the worst possible place to find out.
+
+The service worker does not register on localhost unless you ask for it with
+`?sw=1`. A cache-first worker and an afternoon of editing source files fight
+each other, and the worker wins.
 
 The balance run is not a test suite. It plays the game — thirty sessions of ten
 minutes with eight hours away between them — and asserts that the promise holds

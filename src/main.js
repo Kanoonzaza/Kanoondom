@@ -17,6 +17,7 @@ import { createMapView, tileSheet, buildSheet, centreOn, mapMode } from './ui/ma
 import { openSheet, closeSheet, isSheetOpen, toast } from './ui/panels.js';
 import { initNav, goToScreen } from './ui/nav.js';
 import { settingsSheet } from './ui/settings.js';
+import { registerServiceWorker, watchForInstallOffer } from './ui/install.js';
 import { renderPeople, residentSheet } from './ui/people.js';
 import { renderStudy } from './ui/study.js';
 import { renderForge, skillSheet } from './ui/forge.js';
@@ -141,6 +142,8 @@ function boot() {
 
   document.getElementById('settings-btn')?.addEventListener('click', openSettings);
   guardAgainstASecondWindow();
+  registerServiceWorker({ onUpdateReady: offerTheUpdate });
+  watchForInstallOffer();
 
   document.addEventListener('visibilitychange', onVisibilityChange);
   window.addEventListener('pagehide', () => saveToStorage(state));
@@ -1301,6 +1304,26 @@ function buildTabs() {
       ])
     )
   );
+}
+
+/**
+ * A new version is downloaded and waiting.
+ *
+ * Never applied on its own. Reloading out from under somebody mid-session, to
+ * install something they did not ask for, is the sort of thing this game does
+ * not do — so it waits behind a toast, and saves before it goes.
+ */
+function offerTheUpdate(apply) {
+  toast({
+    title: 'A new version is ready',
+    rows: [['', 'Tap to restart into it. Your kingdom is saved first.', 'pos']],
+    kind: 'good',
+    ms: 30000,
+    onTap: () => {
+      saveToStorage(state);
+      apply();
+    },
+  });
 }
 
 function openSettings() {

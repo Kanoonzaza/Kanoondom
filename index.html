@@ -4,7 +4,20 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#12151f">
+<meta name="description" content="A kingdom builder that keeps growing while you are away.">
 <title>Kingdom Sim</title>
+
+<!-- Installable. Every path here is relative, because the game is served from
+     a subpath on GitHub Pages and a leading slash would look at the domain root. -->
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Kingdom">
+<!-- black-translucent puts the page under the status bar; the HUD already pads
+     for the safe area, so the clock sits on the game's own background. -->
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+
 <link rel="stylesheet" href="styles.css">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🏰</text></svg>">
 </head>

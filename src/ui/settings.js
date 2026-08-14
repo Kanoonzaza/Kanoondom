@@ -10,6 +10,7 @@
 
 import { el, short } from './dom.js';
 import { STORAGE_KEY, BACKUP_KEY, describeSave, serialize } from '../state.js';
+import { canOfferInstall, promptToInstall } from './install.js';
 
 /** Is the game running as an installed app rather than a browser tab? */
 export function isInstalled() {
@@ -223,6 +224,16 @@ function safetyCard(state) {
     rows.push(el('div.pi-note', {
       text: 'Installing the game to your home screen makes its save far harder '
         + 'for the browser to clear, and lets it open without a connection.',
+    }));
+  }
+
+  // Chromium hands us a real install prompt; Safari never does, which is why
+  // the iOS note above spells out the Share-menu route by hand instead.
+  if (canOfferInstall()) {
+    rows.push(el('button.btn.btn-primary', {
+      text: '⬇ Install to your home screen',
+      style: { width: '100%', marginTop: '8px' },
+      on: { click: () => promptToInstall() },
     }));
   }
 
