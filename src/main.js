@@ -35,8 +35,10 @@ import { nestSites, threatLabel } from './sim/monsters.js';
 import { rehouse, freeBeds, totalBeds } from './sim/residents.js';
 import { marry } from './sim/marriage.js';
 import { professionDef } from './content/professions.js';
-import { TICKS_PER_SEASON, SPEEDS, ZONE_UNLOCKS } from './content/config.js';
-import { catchUp } from './sim/offline.js';
+import { TICKS_PER_SEASON, SPEEDS, ZONE_UNLOCKS, DAY } from './content/config.js';
+import {
+  beginCatchUp, runCatchUpChunk, catchUpDone, finishCatchUp,
+} from './sim/offline.js';
 import { place, remove, upgrade, repair, palette, allFacilities } from './sim/facilities.js';
 import { productionRates, storageCapacity, fullStores } from './sim/economy.js';
 import { RESOURCES, RESOURCE_IDS } from './content/resources.js';
@@ -51,6 +53,20 @@ const view = { screen: 'world' };
 let screenDirty = true;
 let hudDirty = true;
 let paintQueued = false;
+
+/**
+ * How a long absence is walked.
+ *
+ * `instantTicks` is two hours — below that the whole span resolves in a few
+ * milliseconds and a progress card would be a flicker for nothing.
+ */
+const CATCH_UP = {
+  instantTicks: 2 * 60 * 60,
+  firstChunk: 20000,
+  minChunk: 2000,
+  maxChunk: 400000,
+  targetMs: 15,
+};
 
 /**
  * Ask for a repaint. Flags only — the loop paints on its next frame.
@@ -92,9 +108,9 @@ function boot() {
   speed = state.settings.defaultSpeed ?? 1;
 
   buildTabs();
-  resume();
   // Paint before the first animation frame: a backgrounded tab never gets one.
   paint(performance.now());
+  resume();
 
   document.addEventListener('visibilitychange', onVisibilityChange);
   window.addEventListener('pagehide', () => saveToStorage(state));
@@ -119,12 +135,89 @@ function boot() {
  * the situation this game is meant to be best at.
  */
 function resume() {
-  let welcome = null;
+  let run = null;
   try {
-    welcome = catchUp(state);
+    run = beginCatchUp(state);
   } catch (err) {
     console.error('Offline catch-up failed:', err);
+    startPlaying();
+    return;
   }
+
+  if (run.elapsedSeconds < 1) {
+    startPlaying();
+    return;
+  }
+
+  // A short absence resolves in well under a frame; interrupting the page with
+  // a progress card for it would be worse than the wait.
+  if (run.simulated <= CATCH_UP.instantTicks) {
+    while (!catchUpDone(run)) runCatchUpChunk(state, run, run.simulated);
+    settle(finishCatchUp(state, run));
+    return;
+  }
+
+  walkTheAbsence(run);
+}
+
+/**
+ * Simulate a long absence in slices, yielding the thread between them.
+ *
+ * A month is up to 2.6 million ticks. In one call that is a frozen white page
+ * before anything has been drawn, which on a phone is a page the system may
+ * simply kill. So the span is walked in slices sized to fit a frame, the page
+ * says what it is doing while it works, and the browser stays answerable
+ * throughout.
+ *
+ * The kingdom that comes out is identical either way: `advanceTicks` walks
+ * segments, so N ticks in one call and N ticks in pieces visit the same
+ * boundaries in the same order. `tests/offline.test.js` asserts it directly.
+ */
+function walkTheAbsence(run) {
+  const progress = catchUpCard();
+  mount(document.getElementById('screen'), progress.node);
+
+  let budget = CATCH_UP.firstChunk;
+
+  const slice = () => {
+    const started = performance.now();
+    try {
+      runCatchUpChunk(state, run, budget);
+    } catch (err) {
+      console.error('Offline catch-up failed:', err);
+      settle(null);
+      return;
+    }
+    const spent = performance.now() - started;
+
+    // Aim each slice at a frame's worth of work. A slow phone takes smaller
+    // bites and a fast one takes bigger ones, and neither is ever locked up for
+    // long enough to be noticed.
+    //
+    // Growth is capped at double per slice. Without that, one unrepresentatively
+    // quick first slice sent the budget straight to the ceiling and the next
+    // slice blocked for 105ms — seven times the target — before the measurement
+    // pulled it back. Doubling reaches the right size in a handful of slices and
+    // never overshoots by more than one.
+    if (spent > 0) {
+      const scaled = Math.min(budget * (CATCH_UP.targetMs / spent), budget * 2);
+      budget = Math.max(CATCH_UP.minChunk, Math.min(CATCH_UP.maxChunk, Math.round(scaled)));
+    }
+
+    if (catchUpDone(run)) {
+      settle(finishCatchUp(state, run));
+      return;
+    }
+
+    progress.update(run.report.ticks, run.simulated);
+    setTimeout(slice, 0);
+  };
+
+  setTimeout(slice, 0);
+}
+
+/** Show the welcome-back panel, if the absence earned one, and start the clock. */
+function settle(welcome) {
   // The welcome-back panel replaces the old stack of toasts. Four toasts
   // fighting for the same corner is not a summary — and the one thing that
   // actually teaches (which store filled, and when) was the easiest to miss.
@@ -133,10 +226,50 @@ function resume() {
       onGoTo: (screen) => { view.screen = screen; markDirty(); },
     }, closeSheet));
   }
+  saveToStorage(state);
+  startPlaying();
+}
 
+function startPlaying() {
   lastSavedSeason = seasonIndex(state);
+  screenDirty = true;
+  hudDirty = true;
   wakeLoop();
   markDirty();
+}
+
+/** "Your kingdom is waking" — shown only when the wait would be noticeable. */
+function catchUpCard() {
+  const bar = el('div', {
+    style: {
+      width: '0%', height: '100%', background: 'var(--gold)', transition: 'width .2s linear',
+    },
+  });
+  const detail = el('div.pi-note', { text: 'Working out what grew while you were gone.' });
+
+  const node = el('div', {}, [
+    el('h2.screen-title.serif', { text: 'Your kingdom is waking' }),
+    el('div.card', {}, [
+      el('div.card-title', { text: 'Catching up' }),
+      el('div', {
+        style: {
+          height: '8px', borderRadius: '4px', overflow: 'hidden',
+          background: 'var(--panel-3)', margin: '6px 0 8px',
+        },
+      }, [bar]),
+      detail,
+    ]),
+  ]);
+
+  const days = (ticks) => Math.floor(ticks / DAY.ticksPerDay).toLocaleString();
+
+  return {
+    node,
+    update(ticksDone, ticksTotal) {
+      bar.style.width = `${Math.round((ticksDone / ticksTotal) * 100)}%`;
+      detail.textContent = `Day ${days(ticksDone)} of ${days(ticksTotal)}.`;
+    },
+  };
 }
 
 function onVisibilityChange() {

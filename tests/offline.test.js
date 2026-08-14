@@ -18,7 +18,9 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { newGame, serialize, deserialize } from '../src/state.js';
 import { advanceTicks } from '../src/sim/tick.js';
-import { catchUp } from '../src/sim/offline.js';
+import {
+  catchUp, beginCatchUp, runCatchUpChunk, catchUpDone, finishCatchUp,
+} from '../src/sim/offline.js';
 import { clearTerritoryFog, worldCentre } from '../src/sim/world.js';
 import { place, canPlace } from '../src/sim/facilities.js';
 import { makeResident, xpForLevel, xpRateOf, ticksToNextLevelUp } from '../src/sim/residents.js';
@@ -428,5 +430,114 @@ test('time spent hidden does not age the kingdom', () => {
   assert.ok(
     state.time.totalTicks > playedTo,
     'but the simulation clock did run, or nothing would have grown'
+  );
+});
+
+// ---------------------------------------------------------------------------
+// Catching up in slices is the same journey as catching up in one step
+// ---------------------------------------------------------------------------
+//
+// A month away is millions of ticks, and doing them in one call freezes the
+// page before it has drawn anything. main.js therefore walks the span in
+// slices, yielding between them. That is a UI concern, but it must not change
+// the kingdom that comes out — so the split is asserted here directly, at
+// several slice sizes and one deliberately uneven schedule.
+
+/**
+ * Two kingdoms are the same kingdom.
+ *
+ * Everything DISCRETE — people, levels, studies, buildings, stock, tiles, item
+ * levels — must match exactly, because those are what a player can see and
+ * count. The two running totals that are plain floating-point sums, resources
+ * and equipment experience, are compared with a tolerance: they accumulate in a
+ * different order when the span is cut differently, and they disagreed in the
+ * last two bits (19680.280826951916 against ...97). That is addition, not
+ * simulation, and the older chunk-independence test above takes the same view.
+ */
+function assertSameTotals(actual, expected, label) {
+  assert.deepEqual(
+    Object.keys(actual).sort(), Object.keys(expected).sort(),
+    `${label}: the same resources are listed`
+  );
+  for (const [id, value] of Object.entries(expected)) {
+    assert.ok(
+      Math.abs(actual[id] - value) <= 1e-6 * Math.max(1, Math.abs(value)),
+      `${label}: ${id} differs — ${actual[id]} vs ${value}`
+    );
+  }
+}
+
+function assertSameKingdom(actual, expected, label) {
+  const near = (a, b, what) => assert.ok(
+    Math.abs(a - b) <= 1e-6 * Math.max(1, Math.abs(b)),
+    `${label}: ${what} differs — ${a} vs ${b}`
+  );
+
+  for (const id of RESOURCE_IDS) {
+    near(actual.resources[id], expected.resources[id], RESOURCES[id].name);
+  }
+  actual.itemExp.forEach((exp, i) => near(exp, expected.itemExp[i], `item ${i} experience`));
+
+  const { resources: _ar, itemExp: _ae, ...actualRest } = actual;
+  const { resources: _er, itemExp: _ee, ...expectedRest } = expected;
+  assert.deepEqual(actualRest, expectedRest, `${label}: same kingdom`);
+}
+
+test('an absence walked in slices lands exactly where one walked in a step does', () => {
+  const away = 3 * 24 * HOUR * 1000;      // three days, in milliseconds
+
+  const whole = livingKingdom();
+  whole.lastSaveTime = 0;
+  const wholeWelcome = catchUp(whole, away);
+
+  for (const schedule of [[500], [20000], [1, 7, 999999], [131, 4096, 60, 250000]]) {
+    const sliced = livingKingdom();
+    sliced.lastSaveTime = 0;
+
+    const run = beginCatchUp(sliced, away);
+    let i = 0;
+    let guard = 0;
+    while (!catchUpDone(run)) {
+      runCatchUpChunk(sliced, run, schedule[i % schedule.length]);
+      i++;
+      if (++guard > 1e6) throw new Error('chunked catch-up did not terminate');
+    }
+    const slicedWelcome = finishCatchUp(sliced, run);
+
+    assertSameKingdom(snapshot(sliced), snapshot(whole), `slices ${schedule.join('/')}`);
+    const label = `slices ${schedule.join('/')}`;
+    // Same tolerance and same reason as assertSameKingdom: these are sums.
+    assertSameTotals(slicedWelcome.gained, wholeWelcome.gained, `${label}: gains`);
+    assertSameTotals(slicedWelcome.wasted, wholeWelcome.wasted, `${label}: overflow`);
+    assert.equal(
+      slicedWelcome.arrivals.length, wholeWelcome.arrivals.length,
+      `${label}: same people came`
+    );
+    assert.equal(
+      slicedWelcome.levelUps.length, wholeWelcome.levelUps.length,
+      `${label}: same people grew`
+    );
+    assert.equal(slicedWelcome.awaySeconds, wholeWelcome.awaySeconds, `${label}: same span`);
+  }
+});
+
+test('a catch-up cut short still owes the rest, and never pays it twice', () => {
+  // The tab is killed half way through. `lastSaveTime` was stamped at the
+  // start, so nothing that was already simulated is repeated — and because
+  // nothing was saved, the untouched remainder is simply owed again.
+  const away = 6 * HOUR;
+
+  const interrupted = livingKingdom();
+  interrupted.lastSaveTime = 0;
+  const run = beginCatchUp(interrupted, away * 1000);
+  runCatchUpChunk(interrupted, run, away / 2);     // ...and then the page dies
+
+  assert.equal(
+    interrupted.lastSaveTime, away * 1000,
+    'the clock was stopped up front, so no span can be counted twice'
+  );
+  assert.ok(
+    run.report.ticks < run.simulated,
+    'and the rest of the absence is still unwalked'
   );
 });
