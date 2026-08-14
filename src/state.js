@@ -14,7 +14,7 @@ import {
   TICKS_PER_SEASON, SEASONS_PER_YEAR, SEASON_NAMES, DAY, WORLD_TILES_X,
 } from './content/config.js';
 
-export const SCHEMA_VERSION = 5;
+export const SCHEMA_VERSION = 6;
 export const STORAGE_KEY = 'kingdom-sim-v2/save';
 
 export function newGame(seed = Math.floor(Math.random() * 0xffffffff), options = {}) {
@@ -140,6 +140,11 @@ export function newGame(seed = Math.floor(Math.random() * 0xffffffff), options =
     allies: [],
 
     residents: [],
+    /**
+     * Married pairs, and what they are expecting. A couple is its own record
+     * rather than two cross-references, so a birth is scheduled once.
+     */
+    couples: [],
     parties: [],
     /** Guards against two arrivals landing on the same day. */
     lastArrivalDay: -1,
@@ -311,6 +316,16 @@ export function migrate(save) {
     state.schemaVersion = 5;
   }
 
+  // 5 -> 6: marriage and the second generation.
+  if (state.schemaVersion < 6) {
+    state.couples = [];
+    for (const resident of state.residents) {
+      resident.partnerId = null;
+      resident.heritage = 1;
+    }
+    state.schemaVersion = 6;
+  }
+
   // Resources and facilities are added between versions more often than the
   // schema changes, so fill any gaps rather than adding a migration each time.
   // A missing store must read 0, not undefined — undefined poisons every sum
@@ -330,6 +345,10 @@ export function migrate(save) {
   // Somebody who arrived before their kingdom had a forge still needs the
   // slots to hang gear on, or every read of them is a crash waiting to happen.
   for (const resident of state.residents) {
+    // Somebody who arrived before their kingdom had weddings still needs these
+    // read as something rather than undefined.
+    if (resident.partnerId === undefined) resident.partnerId = null;
+    if (typeof resident.heritage !== 'number') resident.heritage = 1;
     if (!resident.gear) {
       resident.gear = { weapon: null, head: null, armor: null, shield: null, accessory: null };
     }

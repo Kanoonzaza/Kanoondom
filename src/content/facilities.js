@@ -355,6 +355,19 @@ export const FACILITIES = {
     blurb: 'Eggs raised here hatch into companions, and go out with your people.',
   },
 
+  double_bed: {
+    id: 'double_bed', name: 'Double Bed', icon: '\u{1F6CF}\uFE0F', category: 'housing',
+    size: { w: 1, h: 1 },
+    cost: { wood: 45, grass: 25 },
+    buildTicks: 25,
+    stock: 0,
+    locked: true,
+    aura: { radius: 2, stats: { heart: 5, vigor: 2 } },
+    /** Two people sharing a home with one of these next door may marry. */
+    weddingBed: true,
+    blurb: 'Place it beside a house. The two people living there may marry.',
+  },
+
   // --- Materials: high-grade storage ---------------------------------------
   // The research-gated tier. Storage is the only cap on what accumulates while
   // you are away, so these are the most valuable things research can give you.

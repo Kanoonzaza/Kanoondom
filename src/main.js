@@ -33,6 +33,7 @@ import { creatureDef, colourDef, ROLES, categoryDef } from './content/creatures.
 import { clearNest, enterCave, graceRemaining } from './sim/raids.js';
 import { nestSites, threatLabel } from './sim/monsters.js';
 import { rehouse, freeBeds, totalBeds } from './sim/residents.js';
+import { marry } from './sim/marriage.js';
 import { professionDef } from './content/professions.js';
 import { TICKS_PER_SEASON, SPEEDS, ZONE_UNLOCKS } from './content/config.js';
 import { catchUp } from './sim/offline.js';
@@ -168,6 +169,20 @@ function handleReport(report) {
       kind: 'good',
       ms: 6000,
       onTap: () => { view.screen = 'forge'; markDirty(); },
+    });
+    markDirty();
+  }
+
+  for (const birth of report.births) {
+    toast({
+      title: `👶 ${birth.name} was born`,
+      rows: [
+        ['', `to ${birth.parents.join(' and ')}`, 'pos'],
+        ['', `A child of the kingdom — ${Math.round((birth.heritage - 1) * 100)}% stronger than an incomer.`],
+      ],
+      kind: 'good',
+      ms: 9000,
+      onTap: () => { view.screen = 'people'; markDirty(); },
     });
     markDirty();
   }
@@ -415,6 +430,25 @@ const peopleHandlers = {
     const resident = state.residents.find((person) => person.id === residentId);
     if (resident) openSheet(residentSheet(state, resident, closeSheet));
   },
+  onMarry(aId, bId) {
+    const result = marry(state, aId, bId);
+    if (!result.ok) {
+      toast({ title: 'Not yet', rows: [['', result.reason]], kind: 'warn', ms: 5000 });
+      return;
+    }
+    toast({
+      title: `💍 ${result.a.name} and ${result.b.name}`,
+      rows: [
+        ['', 'Married. They are happier for it, and it shows in their trade.', 'pos'],
+        ['', childrenNote(state)],
+      ],
+      kind: 'good',
+      ms: 8000,
+    });
+    saveToStorage(state);
+    markDirty();
+  },
+
   onRehouse() {
     const moved = rehouse(state);
     toast({
@@ -699,6 +733,12 @@ const eggHandlers = {
     markDirty();
   },
 };
+
+function childrenNote(state) {
+  return state.townHalls.length >= 3
+    ? 'A child will come in time.'
+    : `Children come to a kingdom of three towns. You have ${state.townHalls.length}.`;
+}
 
 function openBuildSheet() {
   openSheet(buildSheet(state, palette(state), {

@@ -281,6 +281,15 @@ export const RESEARCH = {
     blurb: 'A room of their own, for the ones that go out with your people instead.',
   },
 
+  vows: {
+    id: 'vows', name: 'Vows', section: 'facilities', rank: 5,
+    requires: ['civic_planning'],
+    cost: { wood: 160, grass: 120, tome: 6 },
+    study: 600,
+    grants: { unlock: ['double_bed'], stock: { double_bed: 3 } },
+    blurb: 'Double beds. Two people sharing a house beside one may marry — and a kingdom of three towns has children.',
+  },
+
   manors: {
     id: 'manors', name: 'Manors', section: 'facilities', rank: 8,
     requires: ['estates'],

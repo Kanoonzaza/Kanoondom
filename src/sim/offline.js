@@ -72,6 +72,7 @@ export function catchUp(state, now = Date.now()) {
     // People grow by living here, and living here does not stop when the page
     // is closed.
     levelUps: report.levelUps,
+    births: report.births,
     arrivals: report.arrivals,
     completedCount: report.completed.length,
     fullMoons: report.fullMoons,

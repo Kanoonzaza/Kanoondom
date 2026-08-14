@@ -10,6 +10,11 @@ import { auraSources } from '../sim/aura.js';
 import { equippedItems } from '../sim/equipment.js';
 import { compatibilityOf } from '../content/equipment.js';
 import { SKILLS } from '../content/skills.js';
+import {
+  possibleMatches, canMarry, partnerOf, coupleOf, couples, bedBeside,
+  hasChurch, childrenAllowed, roomForChild,
+} from '../sim/marriage.js';
+import { MARRIAGE } from '../content/config.js';
 import { tileX, tileY, zoneLabel, zoneOf } from '../sim/world.js';
 import { STATS, STAT_IDS } from '../content/stats.js';
 import { dayPeriod } from '../state.js';
@@ -81,6 +86,8 @@ function homeCard(state, home, period, handlers) {
     home.occupants.length === 0
       ? el('div.pi-note', { text: 'Empty. Somebody will come.' })
       : null,
+
+    ...matchRows(state, home, handlers),
   ]);
 }
 
@@ -102,6 +109,83 @@ function residentRow(state, resident, period, handlers) {
       text: income > 0 ? `+${income.toFixed(1)}/s` : profession.fighter ? 'fighter' : '—',
     }),
   ]);
+}
+
+/**
+ * Offers to marry the people sharing this roof.
+ *
+ * Shown on the house rather than on a person, because that is where the
+ * requirement actually lives: two people, one roof, a Double Bed beside it.
+ * A refusal always names the thing to go and do about it.
+ */
+function matchRows(state, home, handlers) {
+  const rows = [];
+
+  const married = home.occupants.filter((resident) => resident.partnerId !== null);
+  for (const resident of married) {
+    const partner = partnerOf(state, resident);
+    if (!partner || partner.id < resident.id) continue;   // one row per couple
+    const pair = couples(state).find((entry) => entry.couple.a === resident.id
+      || entry.couple.b === resident.id);
+
+    rows.push(el('div.kv', {}, [
+      el('span', { text: `💍 ${resident.name} and ${partner.name}` }),
+      el('b', {
+        class: 'pos',
+        text: pair?.couple.children > 0
+          ? `${pair.couple.children} child${pair.couple.children === 1 ? '' : 'ren'}`
+          : 'married',
+      }),
+    ]));
+
+    if (pair?.expecting) {
+      rows.push(el('div.pi-note', {
+        class: 'pos',
+        text: `Expecting in ${pair.daysAway} day${pair.daysAway === 1 ? '' : 's'}.`,
+      }));
+      // Tell them BEFORE the disappointment, as with the overfeed warning. The
+      // child is never lost — it simply waits — but a player watching a due
+      // date pass with no explanation will read that as the game forgetting.
+      if (!roomForChild(state, home.origin)) {
+        rows.push(el('div.pi-note', {
+          class: 'neg',
+          text: 'Their house is full. The birth will wait — nothing is lost — '
+            + 'but they need a bigger home, or one of the lodgers to move on.',
+        }));
+      }
+    } else if (pair && !childrenAllowed(state)) {
+      rows.push(el('div.pi-note', {
+        text: `A kingdom of ${MARRIAGE.townsForChildren} towns has children. `
+          + `You have ${state.townHalls.length}.`,
+      }));
+    }
+  }
+
+  const here = possibleMatches(state).filter((match) => match.a.home === home.origin);
+  for (const match of here) {
+    rows.push(el('button.palette-item', {
+      style: { background: 'transparent' },
+      disabled: match.check.ok ? undefined : 'disabled',
+      on: { click: () => handlers.onMarry(match.a.id, match.b.id) },
+    }, [
+      el('div.pi-icon', { text: '💍' }),
+      el('div.pi-body', {}, [
+        el('div.pi-name', { text: `Marry ${match.a.name} and ${match.b.name}` }),
+        el('div.pi-note', {
+          class: match.check.ok ? '' : 'neg',
+          text: match.check.ok
+            ? 'They are close enough, and there is somewhere to hold it.'
+            : match.check.reason,
+        }),
+      ]),
+      el('div.pi-cost', {
+        class: match.check.ok ? '' : 'muted',
+        text: `🟠 ${MARRIAGE.cost.copper}`,
+      }),
+    ]));
+  }
+
+  return rows;
 }
 
 /** The full picture of one resident, including where their strength comes from. */

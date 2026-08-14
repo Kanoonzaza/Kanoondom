@@ -41,6 +41,12 @@ import {
 } from '../src/sim/equipment.js';
 import { skillList, learn } from '../src/sim/skills.js';
 import {
+  possibleMatches, marry, couples, childrenAllowed, bedBeside,
+} from '../src/sim/marriage.js';
+import { homes } from '../src/sim/residents.js';
+import { tileX, tileY } from '../src/sim/world.js';
+import { facilityDef } from '../src/content/facilities.js';
+import {
   waitingEggs, incubating, incubatorFor, canIncubate, incubate, canFeed, feed,
   bandOf, nextBandAt, dominantCategory, alliesOf,
 } from '../src/sim/creatures.js';
@@ -194,8 +200,15 @@ function takeTurn(state) {
   // that the two do not waste each other's reach.
   if (stockOf(state, 'town_hall') > 0) tryBuild(state, 'town_hall');
 
-  // Housing, so people keep arriving.
-  if (freeBeds(state) <= 0) {
+  // Housing, so people keep arriving — and so an expecting couple has somewhere
+  // to put the child. A birth with no spare bed simply waits, which is how
+  // three balance seeds produced couples and no children at all.
+  // Keep headroom as soon as anyone is MARRIED, not once they are expecting:
+  // expectancy needs three towns, so keying off it meant no spare bed until the
+  // third hall, and then no bed for the child either. A circular condition that
+  // traced as "0 children, forever".
+  const anyCouples = state.couples.length > 0;
+  if (freeBeds(state) <= 0 || (anyCouples && freeBeds(state) < 2)) {
     for (const id of ['plot_m', 'plot_s', 'plot_l']) {
       if (tryBuild(state, id)) break;
     }
@@ -220,6 +233,44 @@ function takeTurn(state) {
   tendTheForge(state);
   spendCopperOnSkills(state);
   raiseTheEggs(state);
+  makeMatches(state);
+}
+
+/**
+ * Put a Double Bed beside a house two people share, then marry them.
+ *
+ * The bed has to go NEXT TO the house — that is the real game's rule and ours.
+ * The bot's generic "build whatever research gave me" rule drops things
+ * wherever they fit, so beds landed at random and only a lucky adjacency ever
+ * qualified: three seeds in a row produced zero weddings while the system
+ * itself was working perfectly. A player reads "place it beside a house" and
+ * does exactly that, so the bot does too.
+ */
+function makeMatches(state) {
+  for (const home of homes(state)) {
+    if (home.occupants.length < 2) continue;
+    if (home.occupants.every((person) => person.partnerId !== null)) continue;
+    if (bedBeside(state, home.origin)) continue;
+    if (stockOf(state, 'double_bed') <= 0) break;
+
+    const def = facilityDef(state.world.facilities[home.origin].id);
+    const hx = tileX(home.origin);
+    const hy = tileY(home.origin);
+    let placed = false;
+    for (let dx = -1; dx <= def.size.w && !placed; dx++) {
+      for (let dy = -1; dy <= def.size.h && !placed; dy++) {
+        const x = hx + dx;
+        const y = hy + dy;
+        if (!place(state, x, y, 'double_bed').ok) continue;
+        placed = true;
+      }
+    }
+    if (placed) break;
+  }
+
+  for (const match of possibleMatches(state)) {
+    if (match.check.ok) { marry(state, match.a.id, match.b.id); break; }
+  }
 }
 
 /**
@@ -398,6 +449,14 @@ function runPace(seed) {
     state.lastSaveTime = now;
     now += hours(8) * 1000;
     catchUp(state, now);
+
+    if (TRACE && state.couples.length > 0) {
+      const first = couples(state)[0];
+      log(`        [trace s${session}] day ${dayNumber(state)} · couples ${state.couples.length}`
+        + ` · expecting ${first.expecting} · dueDay ${first.couple.expectingOnDay}`
+        + ` · children ${first.couple.children} · freeBeds ${freeBeds(state)}`
+        + ` · halls ${state.townHalls.length}`);
+    }
   }
 
   log(`        after ${Math.round(playTicks / 60)} minutes of play across 30 sessions:`);
@@ -470,6 +529,12 @@ function runPace(seed) {
     + `bronze ${Math.round(state.resources.bronze)} of ${Math.round(caps.bronze)}`);
   check(skillsBought > 0, 'spends copper on skills at all', `${skillsBought} learned`);
   check(gearMade > 0, 'forges gear at all', `${gearMade} pieces`);
+
+  const wed = state.couples.length;
+  const children = state.residents.filter((r) => r.parents).length;
+  const bestHeritage = state.residents.reduce((best, r) => Math.max(best, r.heritage ?? 1), 1);
+  log(`        ${wed} couples · ${children} children born · `
+    + `best heritage ${bestHeritage.toFixed(2)}x · children allowed: ${childrenAllowed(state)}`);
 
   const hatched = state.allies.length;
   const eggsHeld = state.eggs.length;

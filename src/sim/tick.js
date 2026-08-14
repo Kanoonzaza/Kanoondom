@@ -26,6 +26,7 @@ import {
 import { advanceResearch, studyPower } from './research.js';
 import { advanceEquipment } from './equipment.js';
 import { advanceIncubation, resolveHatching } from './creatures.js';
+import { ticksToNextBirth, resolveBirths } from './marriage.js';
 import { stepThreat } from './raids.js';
 
 /** A fresh record of everything that happened during an advance. */
@@ -43,6 +44,7 @@ export function createReport() {
     upgraded: [],
     arrivals: [],
     levelUps: [],
+    births: [],
     hatched: [],
     research: [],
     battles: [],
@@ -65,7 +67,14 @@ export function ticksToNextEvent(state) {
   // A level-up changes a resident's stats, and so the kingdom's rates. Unlike
   // equipment experience it cannot just be banked — the clock has to stop
   // exactly where it happens, or a chunked run and a live one would disagree.
-  let next = Math.min(toSeason, ticksToNextArrival(state), ticksToNextLevelUp(state));
+  // A birth adds a resident, so like an arrival it changes the kingdom's rates
+  // and has to fall exactly on a boundary.
+  let next = Math.min(
+    toSeason,
+    ticksToNextArrival(state),
+    ticksToNextLevelUp(state),
+    ticksToNextBirth(state)
+  );
 
   for (const key of Object.keys(state.world.facilities)) {
     const facility = state.world.facilities[key];
@@ -174,6 +183,7 @@ export function advanceTicks(state, ticks, options = {}) {
     completeConstruction(state, report);
     applyLevelUps(state, report);
     resolveHatching(state, report);
+    resolveBirths(state, report);
 
     // Threat gathers whether or not anybody is watching; raids resolve only
     // when somebody is. That asymmetry IS the offline promise.
@@ -221,7 +231,7 @@ export function mergeReports(a, b) {
     if (a.filledAtTick[key] === undefined) a.filledAtTick[key] = b.filledAtTick[key];
   }
 
-  for (const list of ['seasons', 'completed', 'upgraded', 'arrivals', 'levelUps', 'hatched', 'research', 'battles', 'raids', 'raidWarnings', 'milestones']) {
+  for (const list of ['seasons', 'completed', 'upgraded', 'arrivals', 'levelUps', 'births', 'hatched', 'research', 'battles', 'raids', 'raidWarnings', 'milestones']) {
     a[list].push(...b[list]);
   }
   return a;

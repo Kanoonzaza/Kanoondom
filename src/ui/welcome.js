@@ -30,6 +30,7 @@ export function worthShowing(welcome) {
   return RESOURCE_IDS.some((id) => (welcome.gained[id] ?? 0) >= 1)
     || welcome.research.length > 0
     || welcome.levelUps.length > 0
+    || (welcome.births ?? []).length > 0
     || welcome.arrivals.length > 0;
 }
 
@@ -124,6 +125,25 @@ export function welcomeSheet(state, welcome, handlers, onClose) {
           ),
           el('div.pi-note', {
             text: 'A higher level means room for another skill.',
+          }),
+        ])
+      : null,
+
+    (welcome.births ?? []).length > 0
+      ? el('div.card', {}, [
+          el('div.card-title', { text: '👶 Born while you were away' }),
+          ...welcome.births.map((birth) =>
+            el('div.kv', {}, [
+              el('span', { text: `${birth.name}, to ${birth.parents.join(' and ')}` }),
+              el('b', {
+                class: 'pos',
+                text: `+${Math.round((birth.heritage - 1) * 100)}% heritage`,
+              }),
+            ])
+          ),
+          el('div.pi-note', {
+            text: 'Children of the kingdom start stronger than anyone who arrives by sea, '
+              + 'and it stays with them however far they level.',
           }),
         ])
       : null,

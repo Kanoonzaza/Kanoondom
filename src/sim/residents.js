@@ -12,7 +12,7 @@
 import { PROFESSIONS, professionDef, ARRIVAL_WEIGHTS } from '../content/professions.js';
 import { STAT_IDS, emptyStats } from '../content/stats.js';
 import { facilityDef } from '../content/facilities.js';
-import { RESIDENTS, DAY } from '../content/config.js';
+import { RESIDENTS, DAY, MARRIAGE } from '../content/config.js';
 import { STUDY } from '../content/research.js';
 import { createRng, deriveSeed, SEED_SALT } from './rng.js';
 import { takeId, dayNumber } from '../state.js';
@@ -155,12 +155,24 @@ export function ticksToNextArrival(state) {
 /** How far ahead to look for the next newcomer before re-checking. */
 const ARRIVAL_LOOKAHEAD_DAYS = 40;
 
-/** Base stats for a newcomer: their trade's leanings, grown by level. */
-export function baseStatsFor(professionId, level) {
+/**
+ * Base stats for a resident: their trade's leanings, grown by level, and then
+ * their HERITAGE.
+ *
+ * Heritage is a plain multiplier carried by children of the kingdom — the
+ * "stronger second generation" the research describes. It lives as a factor
+ * rather than as adjusted numbers because base stats are RE-DERIVED on every
+ * level-up: bake the inheritance into the numbers once and the first level-up
+ * quietly erases it, which is exactly the kind of bug that shows up hours later
+ * as "why is my prodigy ordinary now?".
+ */
+export function baseStatsFor(professionId, level, heritage = 1) {
   const stats = emptyStats();
   const bias = professionDef(professionId).statBias ?? {};
   for (const stat of STAT_IDS) {
-    stats[stat] = (RESIDENTS.baseStat + (bias[stat] ?? 0)) * (1 + (level - 1) * RESIDENTS.statGrowthPerLevel);
+    stats[stat] = (RESIDENTS.baseStat + (bias[stat] ?? 0))
+      * (1 + (level - 1) * RESIDENTS.statGrowthPerLevel)
+      * heritage;
   }
   return stats;
 }
@@ -177,6 +189,12 @@ export function makeResident(state, { name, professionId, level }) {
     /** Five slots, all empty. Filled at the Master Smithy (V6). */
     gear: { weapon: null, head: null, armor: null, shield: null, accessory: null },
     skills: [],
+    /**
+     * 1 for anyone who arrived by sea. Children of the kingdom carry more, and
+     * it must SURVIVE levelling — see baseStatsFor.
+     */
+    heritage: 1,
+    partnerId: null,
     baseStats: baseStatsFor(professionId, level),
     arrivedOnDay: dayNumber(state),
   };
@@ -317,7 +335,7 @@ export function applyLevelUps(state, report) {
 
     // Base stats are a function of level, so they are re-derived rather than
     // nudged — nudging is how two sources of truth start.
-    resident.baseStats = baseStatsFor(resident.professionId, resident.level);
+    resident.baseStats = baseStatsFor(resident.professionId, resident.level, resident.heritage ?? 1);
     report.levelUps.push({
       id: resident.id,
       name: resident.name,
@@ -339,6 +357,11 @@ export function applyLevelUps(state, report) {
  */
 export function statsOf(state, resident) {
   const stats = { ...resident.baseStats };
+
+  // Married people are happier, and Heart is what happiness is called here.
+  if (resident.partnerId !== null && resident.partnerId !== undefined) {
+    stats.heart += MARRIAGE.heartBonus;
+  }
 
   // What they carry and what they know go with them everywhere; only the aura
   // depends on standing somewhere in particular.
@@ -421,8 +444,10 @@ export function residentRates(state) {
     // Building a twelve-key stats object per item per resident per segment is
     // what turned a month-long catch-up into six seconds — the V3 mistake in
     // new clothes. Each branch below asks only for the number it needs.
+    const married = resident.partnerId !== null && resident.partnerId !== undefined;
     const statOf = (id) => resident.baseStats[id] + (aura[id] ?? 0)
-      + gearStat(state, resident, id) + skillStat(resident, id);
+      + gearStat(state, resident, id) + skillStat(resident, id)
+      + (married && id === 'heart' ? MARRIAGE.heartBonus : 0);
 
     if (profession.shop) {
       copper += profession.shop.incomePerShelf

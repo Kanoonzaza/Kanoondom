@@ -166,6 +166,52 @@ export const RESIDENTS = {
   xpForLevelExponent: 1.25,
 };
 
+/**
+ * Marriage and the second generation (research: residents-jobs.md).
+ *
+ * The real game's requirements, kept: a Double Bed placed next to the house, a
+ * Church for the ceremony (which means a housed Monk), and children only once
+ * the kingdom has three towns. Heart is what makes a match.
+ *
+ * Nothing here can take anything away. Nobody is ever forced to marry, nobody
+ * dies, and a child is a pure addition — this game does not do loss.
+ */
+export const MARRIAGE = {
+  /** Both partners need at least this much Heart. */
+  heartNeeded: 14,
+  /** The fee for the ceremony. A gift to the church, not a gate. */
+  cost: { copper: 300 },
+  /** Married people are happier, and it shows in their trade. */
+  heartBonus: 6,
+
+  /** Towns the kingdom must hold before there are children (the real rule). */
+  townsForChildren: 3,
+  /** Days between the wedding and a child, and between children after that. */
+  gestationDays: 12,
+  /** Children a couple will have, at most. */
+  maxChildren: 3,
+  /**
+   * Cots a family home fits above its bed count.
+   *
+   * Children are born into their parents' house rather than queueing for a
+   * spare bed anywhere in the kingdom — but they are not free. Without a bound
+   * the population simply runs away: the first version let children ignore
+   * housing entirely and a five-hour balance run produced 32 couples and 96
+   * children, because every child grew up, married, and had three more.
+   * Housing stays the pacing lever; a house just stretches a little for a family.
+   */
+  cotsPerHome: 2,
+
+  /**
+   * How much stronger the second generation is.
+   *
+   * Applied as a HERITAGE multiplier that survives levelling, and inherited
+   * from the parents' own heritage so a third generation is better again.
+   */
+  generationBonus: 1.18,
+  maxHeritage: 2.5,
+};
+
 /** Offline catch-up. */
 export const OFFLINE = {
   minSecondsForReport: 60,
