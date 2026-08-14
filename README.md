@@ -17,6 +17,18 @@ runtime. It installs to a phone's home screen and opens with no signal at all.
 
 ## Playing it
 
+**[kanoonzaza.github.io/Kanoondom](https://kanoonzaza.github.io/Kanoondom/)** — open it on a phone
+and add it to the home screen:
+
+- **iPhone:** Share, then *Add to Home Screen*. This also stops Safari clearing
+  the save after a week away, which is the one thing that can lose a kingdom.
+- **Android:** the browser will offer to install it, or use *Add to Home screen*
+  from the menu. There is a button for it in Settings too.
+
+Once installed it opens with no signal at all, and with no browser furniture.
+
+Or run it yourself:
+
 ```bash
 play.bat
 ```
