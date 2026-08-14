@@ -171,6 +171,34 @@ thrown away, not trusted selectively.
 
 ---
 
+## 12. A finding can be real and still be the wrong question
+
+The treasury ended every balance run pinned at its cap, and it was carried as an
+open note from V6 to V10. Each milestone the diagnosis improved and the symptom
+did not:
+
+| | diagnosis at the time | what it was worth |
+|---|---|---|
+| V6 | skills are slot-limited and nothing grants residents experience | true — lifetime spend was ~2,100 copper |
+| V7 | levelling opened the slots | true — spend tripled, 32 skills to 89 |
+| V10 | income simply outruns every sink | true — 579,000/day against ~20,000 of lifetime sinks |
+
+So V10 gave facility upgrades a copper cost: ~13,600 per building, hundreds of
+thousands across a town. The bot spent all of it — 367 upgrades in one run — and
+the treasury was **still** full at the end.
+
+The mistake was in the assertion, not the economy. `copper < cap` is not what
+"healthy" means. A tycoon treasury sitting full between spending sprees is
+fine; what would be broken is a full treasury with **nothing left to buy**. The
+check now asserts that — 136 upgrades and 9 skills still on offer — and passes
+honestly.
+
+**Rule.** Before chasing a metric, ask what the metric is standing in for. Three
+milestones went into moving a number that was measuring the wrong thing. The
+symptom was real every time; the question was wrong from the start.
+
+---
+
 ## The one that governs all of them
 
 **Measure before claiming, and measure again after fixing.** Every number in

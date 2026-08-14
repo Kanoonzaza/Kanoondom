@@ -432,6 +432,32 @@ export const LEVEL_EFFECT = [1, 1.6, 2.3, 3.1, 4.0];
 export const LEVEL_UPGRADE_COST = [1.3, 2.6, 4.2, 6.2];
 export const LEVEL_UPGRADE_TIME = [1.2, 1.6, 2.0, 2.5];
 
+/**
+ * COPPER to raise a facility, by the level it is leaving. This is the sink the
+ * whole copper economy was missing.
+ *
+ * Measured before it was written, because the shortfall was not a nudge: a
+ * town of twenty-five level-8 residents earns about 579,000 copper a DAY, and
+ * every copper sink in the game put together — all 24 skills, every equipment
+ * pattern, every study, a wedding — came to roughly 20,000, ever. The treasury
+ * simply sat at its cap and earning stopped meaning anything, which is the one
+ * thing a tycoon game cannot afford.
+ *
+ * Upgrades are the right home for it: repeatable across every building, always
+ * wanted, and steeply scaling with ambition. Taking one facility from 1 to 5
+ * costs 13,600; a whole town of them is a few days of a mature kingdom's income.
+ *
+ * THE TOP STEP IS SIZED AGAINST WHAT A TREASURY HOLDS. The first draft put it
+ * at 12,000 against a base copper cap of 9,000 — a player with no Treasury
+ * could not physically bank enough to buy it, which is the tome dead-end
+ * wearing a different hat. At 9,000 the base cap plus one Treasury (15,000)
+ * leaves real headroom, and the Treasury becomes something you genuinely need
+ * rather than something you eventually get round to.
+ *
+ * The first step is 200, so an early player is never blocked.
+ */
+export const LEVEL_UPGRADE_COPPER = [200, 900, 3500, 9000];
+
 export function effectScale(level = 1) {
   return LEVEL_EFFECT[Math.max(0, Math.min(LEVEL_EFFECT.length - 1, level - 1))];
 }
@@ -450,6 +476,7 @@ export function upgradeCostFor(facilityId, level) {
   for (const [resource, amount] of Object.entries(def.cost)) {
     cost[resource] = Math.round(amount * multiplier);
   }
+  cost.copper = (cost.copper ?? 0) + LEVEL_UPGRADE_COPPER[level - 1];
   return cost;
 }
 

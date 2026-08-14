@@ -15,6 +15,7 @@ import { BIOMES } from '../src/content/biomes.js';
 
 const buildableGrass = (state, x, y) => BIOMES[biomeAt(state, x, y)]?.buildable === true;
 import { advanceTicks } from '../src/sim/tick.js';
+import { storageCapacity } from '../src/sim/economy.js';
 import { FACILITIES, MAX_FACILITY_LEVEL, effectScale } from '../src/content/facilities.js';
 import { TOWN_HALL } from '../src/content/config.js';
 
@@ -267,6 +268,13 @@ test('levels multiply output', () => {
 test('upgrading raises the level and stops at the maximum', () => {
   const state = kingdom();
   build(state, centre.x, centre.y - 3, 'granary');
+
+  // Top-tier upgrades cost more copper than the BASE cap holds, deliberately
+  // (see LEVEL_UPGRADE_COPPER) — so the fixture builds the Treasury the design
+  // now requires. Simply setting a big number does not work: storage clamps it
+  // back at the next season boundary, which is the whole point.
+  build(state, centre.x + 4, centre.y - 3, 'treasury');
+  state.resources.copper = storageCapacity(state).copper;
 
   for (let level = 1; level < MAX_FACILITY_LEVEL; level++) {
     const result = upgrade(state, centre.x, centre.y - 3);

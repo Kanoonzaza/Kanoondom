@@ -245,6 +245,21 @@ key. Both shipped that bug once: ring 1 wanted 15% peace against an 11.1%
 ceiling, and the first map reward wanted 1,200 tiles against 1,024.
 `ringCeiling` plus tests in `research.test.js` now make it unshippable.
 
+### The copper sink (V10)
+
+Facility upgrades cost copper, and that is the economy's main sink. It was added
+after measuring the shortfall rather than sensing it: a town of twenty-five
+level-8 residents earns about **579,000 copper a day**, while every sink in the
+game put together — all 24 skills, every equipment pattern, every study, a
+wedding — came to roughly **20,000, ever**.
+
+Upgrades are the right home for it. They are repeatable across every building,
+always wanted, and scale with ambition: 200 copper for the first step, 9,000 for
+the last, 13,600 to take one facility all the way. The top step is sized against
+what a **Treasury** holds, so that building one is genuinely necessary rather
+than eventually convenient — an earlier draft priced it above the base cap,
+which made it unbuyable, which is the same shape as the tome dead-end.
+
 ## 9. Monsters and combat
 
 Following [monsters-dungeons.md](../research/monsters-dungeons.md).

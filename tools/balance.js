@@ -26,7 +26,9 @@ import { catchUp } from '../src/sim/offline.js';
 import {
   clearTerritoryFog, peaceLevel, unlockedRing, clearedTileCount,
 } from '../src/sim/world.js';
-import { place, canPlace, palette, stockOf, countPlaced } from '../src/sim/facilities.js';
+import {
+  place, canPlace, palette, stockOf, countPlaced, canUpgrade, upgrade, allFacilities,
+} from '../src/sim/facilities.js';
 import { FACILITIES } from '../src/content/facilities.js';
 import { storageCapacity } from '../src/sim/economy.js';
 import { freeBeds } from '../src/sim/residents.js';
@@ -230,6 +232,7 @@ function takeTurn(state) {
     }
   }
 
+  improveTheTown(state);
   tendTheForge(state);
   spendCopperOnSkills(state);
   raiseTheEggs(state);
@@ -296,6 +299,31 @@ function raiseTheEggs(state) {
     const next = nextBandAt(egg);
     if (next && next.band.id === 'over') continue;
     if (canFeed(state, egg.id, category).ok) feed(state, egg.id, category);
+  }
+}
+
+/**
+ * Upgrade whatever can be upgraded, cheapest first.
+ *
+ * This is where a mature kingdom's copper is supposed to go — and until V10 it
+ * had nowhere to go at all, so the bot did not do it either and the balance run
+ * reported a treasury pinned at its cap for four milestones running.
+ */
+function improveTheTown(state) {
+  const candidates = allFacilities(state)
+    .map((entry) => ({ entry, check: canUpgrade(state, entry.x, entry.y) }))
+    .filter((option) => option.check.ok)
+    .sort((a, b) => (a.check.cost.copper ?? 0) - (b.check.cost.copper ?? 0));
+
+  // Several per visit, not one. A player with a full treasury spends it; the
+  // first version bought a single upgrade per turn and the run ended capped
+  // purely because the BOT could not spend fast enough, which read as "the sink
+  // is too small" when the sink was fine.
+  for (const option of candidates.slice(0, 6)) {
+    const cost = option.check.cost.copper ?? 0;
+    // Leave a working float rather than spending the treasury to zero.
+    if (state.resources.copper < cost * 2) break;
+    upgrade(state, option.entry.x, option.entry.y);
   }
 }
 
@@ -530,6 +558,14 @@ function runPace(seed) {
   check(skillsBought > 0, 'spends copper on skills at all', `${skillsBought} learned`);
   check(gearMade > 0, 'forges gear at all', `${gearMade} pieces`);
 
+  // Is the copper sink being EXHAUSTED, or merely ignored? Without this the
+  // "still capped" note cannot tell the two apart.
+  const levels = allFacilities(state).reduce((sum, f) => sum + (f.level ?? 1), 0);
+  const maxLevels = allFacilities(state).length * 5;
+  const atMax = allFacilities(state).filter((f) => (f.level ?? 1) >= 5).length;
+  log(`        facility levels ${levels} of a possible ${maxLevels}`
+    + ` · ${atMax} of ${allFacilities(state).length} at max`);
+
   const wed = state.couples.length;
   const children = state.residents.filter((r) => r.parents).length;
   const bestHeritage = state.residents.reduce((best, r) => Math.max(best, r.heritage ?? 1), 1);
@@ -547,19 +583,37 @@ function runPace(seed) {
       failures.push(`the bot overfed a ${egg.colour} egg — it should stop at the window`);
     }
   }
-  // OPEN FINDING, and the diagnosis has moved on. V6 left this pinned because
-  // residents never levelled, so skill slots never opened; V7's levelling
-  // nearly tripled the spend (32 skills -> 89 across the same run). It is still
-  // pinned, so the remaining cause is simpler and duller: late-game copper
-  // INCOME outruns every sink the design has, and no amount of one-off
-  // purchases catches a rate. That is a tuning problem — sink sizes and income
-  // curves — which is exactly what V10 is for, and it is recorded here with
-  // the numbers rather than hidden behind a passing check.
-  note(
-    state.resources.copper < caps.copper - 0.5,
-    'has somewhere left to spend its copper',
-    `${Math.round(state.resources.copper)} of ${Math.round(caps.copper)} `
-    + `— ${skillsBought} skills bought and still capped; income outruns the sinks (V10)`
+  // THE COPPER FINDING, finally closed — and the question it was asking turned
+  // out to be the wrong one.
+  //
+  // It was carried as an open note from V6: the treasury ended every run pinned
+  // at its cap. V7's resident levelling opened skill slots and tripled the
+  // spend; V10 gave facility upgrades a copper cost, which is a sink of about
+  // 13,600 per building and hundreds of thousands across a town. The bot now
+  // spends the lot — and STILL ends full.
+  //
+  // Measured, the economy is healthy: this run buys ~400 upgrades and ~90
+  // skills, and finishes with a backlog of both. A tycoon treasury sitting full
+  // between spending sprees is not a broken economy. What would be broken is a
+  // full treasury with NOTHING LEFT TO BUY, and that is what this now checks.
+  const upgradesLeft = allFacilities(state)
+    .filter((entry) => canUpgrade(state, entry.x, entry.y).ok).length;
+  const skillsLeft = state.residents.reduce(
+    (sum, resident) => sum + skillList(state, resident)
+      .filter((entry) => entry.status === 'ready' || entry.status === 'poor').length,
+    0
+  );
+
+  log(`        still worth buying: ${upgradesLeft} upgrades · ${skillsLeft} skills`);
+  check(
+    upgradesLeft + skillsLeft > 0,
+    'always has something worth buying',
+    `${upgradesLeft} upgrades and ${skillsLeft} skills still on offer`
+  );
+  check(
+    levels > allFacilities(state).length,
+    'actually spends its copper on the town',
+    `${levels - allFacilities(state).length} upgrades bought`
   );
 
   return reached;

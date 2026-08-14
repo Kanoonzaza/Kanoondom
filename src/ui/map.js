@@ -4,7 +4,7 @@
 // would be 9,216 nodes. So the map is a canvas that draws only what is visible,
 // and the player pans and pinches around it.
 
-import { el } from './dom.js';
+import { el, short } from './dom.js';
 import {
   biomeAt, tileInfo, inBounds, isCleared, inTerritory, wastelandAt,
   hallRadius, zoneOf, zoneLabel, isZoneUnlocked, worldCentre,
@@ -13,7 +13,9 @@ import { BIOMES } from '../content/biomes.js';
 import {
   FACILITIES, facilityDef, FACILITY_CATEGORIES, CATEGORY_LABELS,
 } from '../content/facilities.js';
-import { facilityAt, canPlace, footprintTiles, repairCostFor } from '../sim/facilities.js';
+import {
+  facilityAt, canPlace, footprintTiles, repairCostFor, canUpgrade,
+} from '../sim/facilities.js';
 import { knownNests } from '../sim/monsters.js';
 import { RESOURCES } from '../content/resources.js';
 import { monsterDef } from '../content/monsters.js';
@@ -446,7 +448,7 @@ export function tileSheet(state, x, y, onClose, onAction) {
                     .map(([id, amount]) => `${RESOURCES[id].icon} ${amount}`).join(' ')})`,
                   on: { click: () => onAction?.('repair', x, y) },
                 })
-              : el('button.btn', { text: 'Upgrade', on: { click: () => onAction?.('upgrade', x, y) } }),
+              : upgradeButton(state, x, y, onAction),
             el('button.btn.btn-danger', { text: 'Remove', on: { click: () => onAction?.('remove', x, y) } }),
           ]),
         ])
@@ -493,6 +495,30 @@ export function tileSheet(state, x, y, onClose, onAction) {
 }
 
 /** The build palette: what you own, what it costs, what it needs underfoot. */
+/**
+ * The upgrade button, with its price on it.
+ *
+ * It said only "Upgrade" until V10, which was harmless while an upgrade cost a
+ * few planks. Now that upgrades carry the game's main copper sink — up to 9,000
+ * for a top-tier step — a button that hides its price is a button you press by
+ * accident.
+ */
+function upgradeButton(state, x, y, onAction) {
+  const check = canUpgrade(state, x, y);
+  const price = check.cost
+    ? Object.entries(check.cost)
+        .map(([id, amount]) => `${RESOURCES[id].icon} ${short(amount)}`)
+        .join(' ')
+    : '';
+
+  return el('button.btn', {
+    text: check.cost ? `Upgrade  ${price}` : 'Upgrade',
+    disabled: check.ok ? undefined : 'disabled',
+    title: check.ok ? '' : check.reason ?? '',
+    on: { click: () => onAction?.('upgrade', x, y) },
+  });
+}
+
 export function buildSheet(state, entries, handlers) {
   const body = el('div.palette');
 
