@@ -22,7 +22,15 @@ import { monsterDef } from '../content/monsters.js';
 import { auraSources } from '../sim/aura.js';
 import { WORLD, WORLD_TILES_X, WORLD_TILES_Y } from '../content/config.js';
 
-/** What the player is currently doing on the map. */
+/**
+ * What the player is currently doing on the map.
+ *
+ * `hover` is where the ghost is being shown. On a desktop that follows the
+ * mouse; on a phone it is wherever the player last TAPPED, and it stays there
+ * until they tap somewhere else or confirm. A phone has no hover, and while a
+ * finger is down it covers the very footprint the ghost is meant to be showing
+ * — so tapping stages the building and a bar asks before anything is built.
+ */
 export const mapMode = { building: null, hover: null };
 
 /** Camera, kept across re-renders so the view does not jump. */
@@ -127,6 +135,28 @@ function terrainLayer(state) {
 
 export function zoomBy(factor) {
   camera.zoom = Math.max(camera.minZoom, Math.min(camera.maxZoom, camera.zoom * factor));
+}
+
+/**
+ * Zoom while keeping one screen point over the same piece of world.
+ *
+ * Pinching and wheeling both used to scale about the middle of the canvas, so
+ * the ground under the fingers slid away as it grew and the player had to pan
+ * back to whatever they were looking at. Anchoring is what makes a pinch feel
+ * like handling a map rather than operating a zoom control.
+ */
+export function zoomAbout(canvas, clientX, clientY, factor) {
+  const rect = canvas.getBoundingClientRect();
+  const px = clientX - rect.left - rect.width / 2;
+  const py = clientY - rect.top - rect.height / 2;
+
+  const worldX = camera.x + px / camera.zoom;
+  const worldY = camera.y + py / camera.zoom;
+
+  zoomBy(factor);
+
+  camera.x = worldX - px / camera.zoom;
+  camera.y = worldY - py / camera.zoom;
 }
 
 export function centreOn(x, y) {
@@ -396,29 +426,85 @@ export function createMapView(state, handlers) {
     wrap.stopObserving = () => observer.disconnect();
   }
 
-  // --- pointer handling: drag to pan, pinch to zoom, tap to inspect ---
+  // --- pointer handling: drag to pan, pinch to zoom, tap to choose ---
   const pointers = new Map();
   let dragged = 0;
-  let pinchStart = null;
+  let pinch = null;
+  let velocityX = 0;
+  let velocityY = 0;
+  let lastMoveAt = 0;
+  let glide = 0;
+
+  const reducedMotion =
+    globalThis.matchMedia?.('(prefers-reduced-motion: reduce)').matches === true;
+
+  /** Where two fingers are, on average, and how far apart. */
+  function pinchOf() {
+    const [a, b] = [...pointers.values()];
+    return {
+      x: (a.x + b.x) / 2,
+      y: (a.y + b.y) / 2,
+      spread: Math.hypot(a.x - b.x, a.y - b.y),
+    };
+  }
+
+  /**
+   * Coast to a stop after a flick.
+   *
+   * The main loop asks `animating()` whether to keep giving out frames, which
+   * is how a paused game can still be panned smoothly and still fall back to
+   * zero work the moment the map settles.
+   */
+  wrap.animating = () => glide > 0;
+
+  wrap.step = () => {
+    if (glide <= 0) return;
+    camera.x -= velocityX / camera.zoom;
+    camera.y -= velocityY / camera.zoom;
+    velocityX *= 0.92;
+    velocityY *= 0.92;
+    if (Math.hypot(velocityX, velocityY) < 0.05) glide = 0;
+    redraw();
+  };
 
   canvas.addEventListener('pointermove', (event) => {
-    // Desktop hover: show the ghost without needing a press.
-    if (!mapMode.building || pointers.size > 0) return;
+    // Desktop hover: show the ghost without needing a press. A touch device
+    // never sends this without a button held, so it costs phones nothing.
+    if (!mapMode.building || pointers.size > 0 || event.pointerType === 'touch') return;
     const tile = tileAtPointer(canvas, event.clientX, event.clientY);
     if (tile && (mapMode.hover?.x !== tile.x || mapMode.hover?.y !== tile.y)) {
       mapMode.hover = tile;
+      handlers.onStage?.(tile.x, tile.y);
       redraw();
     }
   });
 
   canvas.addEventListener('pointerdown', (event) => {
-    canvas.setPointerCapture(event.pointerId);
-    if (mapMode.building) {
-      const tile = tileAtPointer(canvas, event.clientX, event.clientY);
-      if (tile) mapMode.hover = tile;
+    // Capture keeps a drag alive if the finger leaves the canvas, but it is
+    // allowed to throw — and if it does before the pointer is registered below,
+    // every tap and drag on the map stops working. It is an optimisation, not a
+    // requirement, so it never gets to take the input with it.
+    try {
+      canvas.setPointerCapture(event.pointerId);
+    } catch {
+      /* the pointer went away before we could claim it */
     }
+    glide = 0;                      // a finger down stops any coasting
+    velocityX = 0;
+    velocityY = 0;
+
+    // A primary pointer going down is the FIRST finger of a new gesture, so
+    // anything still in here is stale — a pointerup the page never received
+    // because something took the gesture away mid-stroke (a call arriving, the
+    // system back gesture). Left behind, those ghosts make every later tap look
+    // like the tail of a two-finger pinch, and the map stops answering taps
+    // entirely until the page is reloaded.
+    if (event.isPrimary) pointers.clear();
+
     pointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
+    if (pointers.size === 2) pinch = pinchOf();
     dragged = 0;
+    lastMoveAt = event.timeStamp;
     canvas.classList.add('dragging');
   });
 
@@ -426,54 +512,66 @@ export function createMapView(state, handlers) {
     const previous = pointers.get(event.pointerId);
     if (!previous) return;
     const next = { x: event.clientX, y: event.clientY };
+    pointers.set(event.pointerId, next);
 
     if (pointers.size === 1) {
       const dx = next.x - previous.x;
       const dy = next.y - previous.y;
       dragged += Math.abs(dx) + Math.abs(dy);
+
+      const dt = event.timeStamp - lastMoveAt;
+      if (dt > 0) {
+        // Blended, so one jittery sample cannot throw a flick off course.
+        velocityX = velocityX * 0.4 + (dx / dt) * 16 * 0.6;
+        velocityY = velocityY * 0.4 + (dy / dt) * 16 * 0.6;
+      }
+      lastMoveAt = event.timeStamp;
+
       camera.x -= dx / camera.zoom;
       camera.y -= dy / camera.zoom;
       redraw();
+      return;
     }
 
-    pointers.set(event.pointerId, next);
-
-    if (mapMode.building && pointers.size === 1) {
-      const tile = tileAtPointer(canvas, next.x, next.y);
-      if (tile && (mapMode.hover?.x !== tile.x || mapMode.hover?.y !== tile.y)) {
-        mapMode.hover = tile;
-        redraw();
+    if (pointers.size === 2 && pinch) {
+      const now = pinchOf();
+      // Both at once, about the point between the fingers: the spread zooms and
+      // the centroid pans, which together are simply "move the paper".
+      if (pinch.spread > 0 && now.spread > 0) {
+        zoomAbout(canvas, now.x, now.y, now.spread / pinch.spread);
       }
-    }
-
-    if (pointers.size === 2) {
-      const [a, b] = [...pointers.values()];
-      const spread = Math.hypot(a.x - b.x, a.y - b.y);
-      if (pinchStart === null) {
-        pinchStart = { spread, zoom: camera.zoom };
-      } else if (pinchStart.spread > 0) {
-        camera.zoom = Math.max(
-          camera.minZoom,
-          Math.min(camera.maxZoom, pinchStart.zoom * (spread / pinchStart.spread))
-        );
-        dragged += 10;
-        redraw();
-      }
+      camera.x -= (now.x - pinch.x) / camera.zoom;
+      camera.y -= (now.y - pinch.y) / camera.zoom;
+      pinch = now;
+      dragged += 10;
+      redraw();
     }
   });
 
   function endPointer(event) {
     const wasSingle = pointers.size === 1;
     pointers.delete(event.pointerId);
-    if (pointers.size < 2) pinchStart = null;
+    if (pointers.size < 2) pinch = null;
+    if (pointers.size === 1) pinch = null;
     if (pointers.size === 0) canvas.classList.remove('dragging');
+
+    if (wasSingle && dragged >= 6 && !reducedMotion) {
+      // Let a flick carry, but only a real one.
+      if (Math.hypot(velocityX, velocityY) > 1.5) glide = 1;
+    }
 
     // A tap, not a drag.
     if (wasSingle && dragged < 6) {
       const tile = tileAtPointer(canvas, event.clientX, event.clientY);
       if (!tile) return;
-      if (mapMode.building) handlers.onPlaceAt?.(tile.x, tile.y);
-      else handlers.onTapTile?.(tile.x, tile.y);
+      if (mapMode.building) {
+        // Position it; do not build it. The confirm bar does that.
+        mapMode.hover = tile;
+        handlers.onStage?.(tile.x, tile.y);
+        redraw();
+      } else {
+        handlers.onTapTile?.(tile.x, tile.y);
+      }
     }
   }
   canvas.addEventListener('pointerup', endPointer);
@@ -481,7 +579,7 @@ export function createMapView(state, handlers) {
 
   canvas.addEventListener('wheel', (event) => {
     event.preventDefault();
-    zoomBy(event.deltaY < 0 ? 1.12 : 1 / 1.12);
+    zoomAbout(canvas, event.clientX, event.clientY, event.deltaY < 0 ? 1.12 : 1 / 1.12);
     redraw();
   }, { passive: false });
 
@@ -546,6 +644,7 @@ export function tileSheet(state, x, y, onClose, onAction) {
               : upgradeButton(state, x, y, onAction),
             el('button.btn.btn-danger', { text: 'Remove', on: { click: () => onAction?.('remove', x, y) } }),
           ]),
+          standing.damaged ? null : upgradeRefusal(state, x, y),
         ])
       : null,
 
@@ -609,9 +708,21 @@ function upgradeButton(state, x, y, onAction) {
   return el('button.btn', {
     text: check.cost ? `Upgrade  ${price}` : 'Upgrade',
     disabled: check.ok ? undefined : 'disabled',
-    title: check.ok ? '' : check.reason ?? '',
     on: { click: () => onAction?.('upgrade', x, y) },
   });
+}
+
+/**
+ * Why the upgrade is refused, as text on the page.
+ *
+ * It lived in a `title` attribute, which is a tooltip, which a touch screen
+ * never shows: on a phone the button was simply dead with no explanation. Every
+ * other refusal in this game is a visible line, and now so is this one.
+ */
+function upgradeRefusal(state, x, y) {
+  const check = canUpgrade(state, x, y);
+  if (check.ok || !check.reason) return null;
+  return el('div.pi-note', { class: 'neg', text: check.reason });
 }
 
 export function buildSheet(state, entries, handlers) {
@@ -668,7 +779,7 @@ export function buildSheet(state, entries, handlers) {
 
   return el('div', {}, [
     el('h3.sheet-title', { text: 'Build' }),
-    el('p.sheet-sub', { text: 'Pick something, then tap the map to place it.' }),
+    el('p.sheet-sub', { text: 'Pick something, then tap the map to position it.' }),
     body,
     el('div.btn-row', {}, [
       el('button.btn', { text: 'Cancel', on: { click: handlers.onClose } }),

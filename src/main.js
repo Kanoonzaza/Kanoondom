@@ -12,7 +12,7 @@ import {
   peaceLevel, unlockedRing, nextGate, monarchRank, hallRadius,
   clearTerritoryFog, territoryTiles, zoneLabel, zoneOf,
 } from './sim/world.js';
-import { el, mount, short, duration } from './ui/dom.js';
+import { el, mount, short } from './ui/dom.js';
 import { createMapView, tileSheet, buildSheet, centreOn, mapMode } from './ui/map.js';
 import { openSheet, closeSheet, isSheetOpen, toast } from './ui/panels.js';
 import { renderPeople, residentSheet } from './ui/people.js';
@@ -39,7 +39,7 @@ import { TICKS_PER_SEASON, SPEEDS, ZONE_UNLOCKS, DAY } from './content/config.js
 import {
   beginCatchUp, runCatchUpChunk, catchUpDone, finishCatchUp,
 } from './sim/offline.js';
-import { place, remove, upgrade, repair, palette, allFacilities } from './sim/facilities.js';
+import { place, remove, upgrade, repair, palette, canPlace } from './sim/facilities.js';
 import { productionRates, storageCapacity, fullStores } from './sim/economy.js';
 import { RESOURCES, RESOURCE_IDS } from './content/resources.js';
 import { facilityDef } from './content/facilities.js';
@@ -343,6 +343,10 @@ function loop(now) {
     }
   }
 
+  // A flick keeps coasting even with the game paused, which is why the loop
+  // asks the map whether it still needs frames rather than only asking `speed`.
+  mapView?.step?.();
+
   paint(now);
   // Re-arm directly, keeping the frame delta continuous. Only while something
   // is actually moving: a paused game in the foreground asks for no frames.
@@ -477,6 +481,7 @@ function paint(now) {
   if (mapMode.building && (state.stock[mapMode.building] ?? 0) <= 0) {
     mapMode.building = null;
     mapMode.hover = null;
+    removePlaceBar();
   }
 
   if (hudDirty) {
@@ -642,6 +647,7 @@ function renderScreen() {
   }
 
   updateTabs();
+  refreshPlaceBar();
 }
 
 function renderWorld() {
@@ -650,7 +656,7 @@ function renderWorld() {
 
   mapView = createMapView(state, {
     onTapTile: (x, y) => openSheet(tileSheet(state, x, y, closeSheet, onTileAction)),
-    onPlaceAt: placeHere,
+    onStage: stageAt,
   });
 
   const wrapper = el('div', {}, [
@@ -661,12 +667,12 @@ function renderWorld() {
       mapMode.building
         ? el('button.btn.btn-danger', {
             text: 'Cancel',
-            style: { flex: 'none', padding: '0 14px', minHeight: '38px' },
-            on: { click: () => { mapMode.building = null; mapMode.hover = null; markDirty(); } },
+            style: { flex: 'none', padding: '0 14px' },
+            on: { click: stopBuilding },
           })
         : el('button.btn.btn-primary', {
             text: '🔨 Build',
-            style: { flex: 'none', padding: '0 14px', minHeight: '38px' },
+            style: { flex: 'none', padding: '0 14px' },
             on: { click: openBuildSheet },
           }),
     ]),
@@ -1020,13 +1026,76 @@ function openBuildSheet() {
       closeSheet();
       toast({
         title: `Placing ${facilityDef(facilityId).name}`,
-        rows: [['', 'Tap the map. Green fits, red does not.']],
+        rows: [['', 'Tap the map to position it. Green fits, red does not.']],
         ms: 4000,
       });
       markDirty();
     },
     onClose: closeSheet,
   }));
+}
+
+/**
+ * Put the ghost somewhere, and update the bar that asks about it.
+ *
+ * Nothing is built here. On a phone the finger is on top of the footprint it is
+ * meant to be judging, so tapping only ever POSITIONS — the confirm bar below
+ * the map is what actually builds, and it can say why it will not.
+ */
+function stageAt(x, y) {
+  mapMode.hover = { x, y };
+  refreshPlaceBar();
+}
+
+function stopBuilding() {
+  mapMode.building = null;
+  mapMode.hover = null;
+  removePlaceBar();
+  markDirty();
+}
+
+let placeBar = null;
+
+function removePlaceBar() {
+  placeBar?.remove();
+  placeBar = null;
+}
+
+/**
+ * The bar that stands between choosing a spot and building on it.
+ *
+ * Lives outside the screen tree, above the tab bar, so it survives the screen
+ * rebuilds that happen constantly while the clock runs.
+ */
+function refreshPlaceBar() {
+  removePlaceBar();
+  if (!mapMode.building || view.screen !== 'world') return;
+
+  const def = facilityDef(mapMode.building);
+  const spot = mapMode.hover;
+  const check = spot ? canPlace(state, spot.x, spot.y, mapMode.building) : null;
+
+  placeBar = el('div.place-bar', {}, [
+    el('div.pb-text', {}, [
+      el('div.pb-name', { text: `${def.icon} ${def.name}` }),
+      el('div', {
+        class: `pb-why${check && !check.ok ? ' neg' : ''}`,
+        text: !spot
+          ? 'Tap the map to choose a spot.'
+          : check.ok
+            ? `At ${spot.x}, ${spot.y}. Tap elsewhere to move it.`
+            : check.reason,
+      }),
+    ]),
+    el('button.btn.btn-danger', { text: 'Cancel', on: { click: stopBuilding } }),
+    el('button.btn.btn-primary', {
+      text: 'Build here',
+      disabled: check?.ok ? undefined : 'disabled',
+      on: { click: () => spot && placeHere(spot.x, spot.y) },
+    }),
+  ]);
+
+  document.body.append(placeBar);
 }
 
 function placeHere(x, y) {
@@ -1050,12 +1119,15 @@ function placeHere(x, y) {
     announceMapRewards(checkMapRewards(state));
   }
 
+  // A small confirmation you can feel, for the one action that changes the map.
+  if (state.settings.vibrate !== false) globalThis.navigator?.vibrate?.(10);
+
   // Stay in build mode while stock lasts, so a row of paths is not ten trips
   // through the menu.
   if ((state.stock[facilityId] ?? 0) <= 0) {
     mapMode.building = null;
-    mapMode.hover = null;
   }
+  mapMode.hover = null;
   saveToStorage(state);
   markDirty();
 }

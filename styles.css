@@ -23,7 +23,6 @@
   --radius: 10px;
   --tap: 44px;
 
-  --hud-h: 92px;
   --tabs-h: 58px;
 
   color-scheme: dark;
@@ -46,9 +45,32 @@ body {
   -webkit-tap-highlight-color: transparent;
 }
 
+/* The page behind an open sheet must not move. */
+body.sheet-open { overflow: hidden; }
+
+/* A long press on a game control should not offer to select or copy it —
+   nothing here is text to be taken away, and the selection highlight is the
+   loudest "this is a web page" tell there is. Sheets keep normal selection so
+   numbers and names can still be copied. */
+.hud, .tabs, .map-wrap, .palette-item, .btn, .speed-btn, .map-btn {
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+}
+
+/* Keyboard and switch users get a visible focus ring; pointer users do not. */
+:focus-visible {
+  outline: 2px solid var(--gold);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
 #app {
   max-width: 520px;
   margin: 0 auto;
+  /* Landscape notches cut into the sides, not just the top. */
+  padding-left: env(safe-area-inset-left, 0px);
+  padding-right: env(safe-area-inset-right, 0px);
   min-height: 100%;
   display: flex;
   flex-direction: column;
@@ -158,11 +180,13 @@ button {
 
 .speeds { display: flex; gap: 3px; }
 
-/* The most-tapped control in the game, so it gets a thumb-sized target even
-   though the HUD would rather have the space back. */
+/* The most-tapped control in the game, so it gets a full thumb-sized target
+   even though the HUD would rather have the space back. It was 36px until the
+   mobile pass, which is under the 44px minimum for exactly the control a
+   player reaches for most. */
 .speed-btn {
-  min-width: 40px;
-  height: 36px;
+  min-width: var(--tap);
+  height: var(--tap);
   border-radius: 7px;
   background: var(--panel-2);
   color: var(--muted);
@@ -249,8 +273,8 @@ main {
 }
 
 .map-btn {
-  width: 38px;
-  height: 38px;
+  width: var(--tap);
+  height: var(--tap);
   border-radius: 9px;
   background: rgba(26, 31, 46, .92);
   border: 1px solid var(--line);
@@ -289,109 +313,6 @@ main {
 
 .gate-note { font-size: 12px; color: var(--muted); margin-top: 6px; }
 
-/* -------------------------------------------------------- Region view ---- */
-
-.region-header {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  margin-bottom: 10px;
-}
-
-.back-btn {
-  width: var(--tap);
-  height: var(--tap);
-  margin-left: -8px;
-  border-radius: var(--radius);
-  font-size: 20px;
-  color: var(--muted);
-  flex: none;
-}
-
-.build-grid {
-  display: grid;
-  gap: 5px;
-  margin-bottom: 12px;
-}
-
-.slot {
-  aspect-ratio: 1;
-  background: var(--panel);
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 1px;
-  position: relative;
-  overflow: hidden;
-  padding: 2px;
-}
-
-.slot.empty {
-  border-style: dashed;
-  border-color: #2b3346;
-  color: #39415a;
-  font-size: 20px;
-}
-.slot.empty::after { content: '+'; }
-
-.slot.selected {
-  border-color: var(--gold);
-  box-shadow: 0 0 0 1px var(--gold) inset;
-}
-
-.slot.liked {
-  border-color: var(--food);
-  box-shadow: 0 0 0 1px rgba(124,196,127,.5) inset;
-}
-
-.slot-icon { font-size: 19px; line-height: 1; }
-.slot-name {
-  font-size: 8.5px;
-  color: var(--muted);
-  text-align: center;
-  line-height: 1.1;
-  max-width: 100%;
-  overflow: hidden;
-}
-
-.slot-bonus {
-  position: absolute;
-  top: 1px;
-  right: 3px;
-  font-size: 8px;
-  font-weight: 700;
-  color: var(--food);
-}
-
-.slot.building { opacity: .75; }
-.slot-progress {
-  position: absolute;
-  left: 0; bottom: 0;
-  height: 3px;
-  background: var(--gold);
-}
-.slot.disabled { opacity: .45; }
-.slot.disabled .slot-icon { filter: grayscale(1); }
-
-.slot-level {
-  position: absolute;
-  bottom: 1px;
-  right: 3px;
-  font-size: 8px;
-  font-weight: 700;
-  color: var(--gold);
-}
-
-.slot-warn {
-  position: absolute;
-  top: 1px;
-  left: 3px;
-  font-size: 9px;
-}
-
 /* --------------------------------------------------------- Bottom nav ---- */
 
 .tabs {
@@ -421,21 +342,6 @@ main {
 }
 .tab-icon { font-size: 18px; line-height: 1; }
 .tab.active { color: var(--gold); }
-.tab .badge {
-  position: absolute;
-  transform: translate(14px, -12px);
-  background: var(--danger);
-  color: #fff;
-  font-size: 9px;
-  font-weight: 700;
-  min-width: 15px;
-  height: 15px;
-  border-radius: 8px;
-  display: grid;
-  place-items: center;
-  padding: 0 3px;
-}
-
 /* ------------------------------------------------------------ Overlay ---- */
 
 .overlay {
@@ -451,8 +357,16 @@ main {
 .sheet {
   width: 100%;
   max-width: 520px;
+  /* dvh, so a sheet's last button is never left under the browser's own bar.
+     The vh line above it is the fallback for anything without dvh. */
   max-height: 86vh;
+  max-height: 86dvh;
   overflow-y: auto;
+  /* Scrolling to the end of a sheet must not start scrolling the page behind
+     it. `body.sheet-open` stops that page moving at all; this stops the chain
+     ever reaching it. */
+  overscroll-behavior: contain;
+  touch-action: pan-y;
   background: var(--panel);
   border: 1px solid var(--line);
   border-bottom: none;
@@ -463,11 +377,23 @@ main {
 
 @keyframes rise { from { transform: translateY(12px); opacity: .6 } to { transform: none; opacity: 1 } }
 
+/* The grab area for swipe-to-dismiss: a wide, generous target with a small
+   visible pill inside it. Dragging the sheet BODY would fight its own
+   scrolling, so only this and the title row take the gesture. */
+.sheet-grip {
+  padding: 6px 0 10px;
+  margin: -8px 0 2px;
+  cursor: grab;
+  touch-action: none;
+}
+.sheet.dragging { animation: none; transition: none; }
+.sheet.closing { transition: transform .16s ease-in, opacity .16s ease-in; }
+
 .sheet-handle {
   width: 36px; height: 4px;
   background: var(--panel-3);
   border-radius: 2px;
-  margin: -4px auto 12px;
+  margin: 0 auto;
 }
 
 .sheet-title {
@@ -534,13 +460,40 @@ main {
 .btn-primary { background: var(--gold); color: #1a1206; border-color: var(--gold); }
 .btn-danger { color: var(--danger); }
 
+/* ------------------------------------------------- Placement confirm ---- */
+
+/* Sits above the tab bar while a building is being positioned. A phone has no
+   hover, so the ghost cannot follow a finger that is not touching — and while
+   it IS touching, the finger covers the very thing it is meant to be judging.
+   So a tap positions, and this says what would happen and asks. */
+.place-bar {
+  position: fixed;
+  left: 0; right: 0;
+  bottom: calc(var(--tabs-h) + env(safe-area-inset-bottom, 0px));
+  z-index: 35;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px calc(8px + env(safe-area-inset-bottom, 0px) * 0);
+  background: linear-gradient(180deg, rgba(20, 25, 38, .96), rgba(20, 25, 38, 1));
+  border-top: 1px solid var(--line);
+}
+.place-bar .pb-text { flex: 1; min-width: 0; font-size: 12.5px; }
+.place-bar .pb-name { font-weight: 600; font-size: 13px; }
+.place-bar .pb-why { color: var(--muted); }
+.place-bar .pb-why.neg { color: var(--danger); }
+.place-bar .btn { flex: 0 0 auto; padding: 0 14px; }
+
 /* ------------------------------------------------------------- Toasts ---- */
 
 .toasts {
   position: fixed;
   left: 0; right: 0;
   bottom: calc(var(--tabs-h) + env(safe-area-inset-bottom, 0px) + 8px);
-  z-index: 30;
+  /* Above the sheet overlay (40), not below it. Toasts sat at 30 and so were
+     painted behind the scrim: every notice raised while a sheet was open was
+     invisible, which includes learning a skill from the skill sheet. */
+  z-index: 50;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -573,13 +526,6 @@ main {
 .neg { color: var(--danger); }
 
 /* --------------------------------------------------------------- misc ---- */
-
-.empty-note {
-  text-align: center;
-  color: var(--dim);
-  padding: 28px 16px;
-  font-size: 13px;
-}
 
 .kv { display: flex; justify-content: space-between; gap: 12px; padding: 3px 0; font-size: 13px; }
 .kv b { font-variant-numeric: tabular-nums; font-weight: 600; }
