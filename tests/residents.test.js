@@ -4,6 +4,7 @@ import { newGame, dayNumber } from '../src/state.js';
 import {
   homes, freeBeds, totalBeds, firstFreeHome, arrivalForDay, baseStatsFor,
   statsOf, shopIncomeOf, shopIncome, gatherRates, activityOf, rehouse, residentsOf,
+  makeResident,
 } from '../src/sim/residents.js';
 import { place, remove, canPlace } from '../src/sim/facilities.js';
 import { advanceTicks } from '../src/sim/tick.js';
@@ -363,4 +364,29 @@ test('people arrive while you are away, and the town is working when you return'
     state.resources.copper > STARTING_RESOURCES.copper,
     'so the purse is fuller than it was left'
   );
+});
+
+test('a resident living somewhere that is not a house does not crash the game', () => {
+  // `remove` orphans anybody under a roof it takes away, so ordinary play never
+  // produces this. An imported save, a hand-edited file or a bad migration can,
+  // and when it did the read went straight through `housing.shelves` and threw
+  // on the clock's hot path — which killed the game at boot, unrecoverably,
+  // because the save parsed perfectly well and the backup was no better.
+  //
+  // A wrong number should never be able to do that. They are treated as having
+  // nowhere to trade from instead.
+  const state = newGame(11, { now: 0 });
+  const centre = worldCentre();
+  const hall = state.world.facilities[Object.keys(state.world.facilities)[0]];
+  assert.ok(hall, 'a new kingdom starts with its town hall');
+
+  const resident = makeResident(state, {
+    name: 'Lost', professionId: 'merchant', level: 2,
+  });
+  resident.home = Number(Object.keys(state.world.facilities)[0]);   // the Town Hall
+  state.residents.push(resident);
+
+  assert.doesNotThrow(() => shopIncomeOf(state, resident));
+  assert.equal(shopIncomeOf(state, resident), 0, 'and they earn nothing from it');
+  assert.doesNotThrow(() => advanceTicks(state, 120), 'the clock keeps running');
 });

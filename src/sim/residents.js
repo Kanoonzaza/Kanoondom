@@ -398,7 +398,11 @@ export function shopIncomeOf(state, resident) {
   const home = state.world.facilities[resident.home];
   if (!isActive(home)) return 0;
 
-  const shelves = facilityDef(home.id).housing.shelves;
+  // A home that is not housing means the save has drifted — a hand-edited
+  // file, an import, a migration that went wrong. Reading through it threw and
+  // took the whole game down at boot, which is not a thing a bad number should
+  // be able to do. Treat them as having nowhere to trade from instead.
+  const shelves = facilityDef(home.id).housing?.shelves ?? 0;
   const heart = statsOf(state, resident).heart;
 
   return profession.shop.incomePerShelf
@@ -451,7 +455,7 @@ export function residentRates(state) {
 
     if (profession.shop) {
       copper += profession.shop.incomePerShelf
-        * facilityDef(home.id).housing.shelves
+        * (facilityDef(home.id).housing?.shelves ?? 0)
         * (1 + (resident.level - 1) * RESIDENTS.incomePerLevel)
         * (1 + statOf('heart') * RESIDENTS.incomePerHeart)
         * (1 + effectValue(resident, 'incomeMultiplier'));

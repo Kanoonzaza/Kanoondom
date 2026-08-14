@@ -13,6 +13,9 @@ import { BIOMES } from '../content/biomes.js';
 import { TILE, register, drawSprite, hasSprite } from './sprites.js';
 import { terrainTemplates, variantCount } from '../content/art/terrain-art.js';
 import { facilityTemplates } from '../content/art/facilities-art.js';
+import { peopleTemplates } from '../content/art/people-art.js';
+import { monsterTemplates } from '../content/art/monsters-art.js';
+import { townsfolkAt, sleepingHouses } from './townsfolk.js';
 import { isSheetOpen } from './panels.js';
 import { dayPeriod, isFullMoon } from '../state.js';
 import {
@@ -23,7 +26,6 @@ import {
 } from '../sim/facilities.js';
 import { knownNests } from '../sim/monsters.js';
 import { RESOURCES } from '../content/resources.js';
-import { monsterDef } from '../content/monsters.js';
 import { auraSources } from '../sim/aura.js';
 import { WORLD, WORLD_TILES_X, WORLD_TILES_Y } from '../content/config.js';
 
@@ -111,6 +113,16 @@ const UNLOCKED_TINT = 'rgba(0,0,0,0.45)';
 
 register(terrainTemplates());
 register(facilityTemplates());
+register(peopleTemplates());
+register(monsterTemplates());
+
+/**
+ * Below this many pixels to a tile, a person is a smudge.
+ *
+ * Drawing them anyway would cost a draw call each for something nobody can
+ * make out, and at the widest zoom that is every resident in the kingdom.
+ */
+const FOLK_MIN_ZOOM = 7;
 
 /** Two whole-world sheets, one per animation frame. */
 let terrainSheets = null;
@@ -452,6 +464,37 @@ export function drawMap(canvas, state) {
     // facility standing on real tiles, not a marker.
   }
 
+  // --- the people who live here ---
+  //
+  // After the buildings, so somebody standing in front of a house is drawn in
+  // front of it, and before the nests so a monster is never hidden by a farmer.
+  if (size >= FOLK_MIN_ZOOM) {
+    const bounds = { firstX, lastX, firstY, lastY };
+    const folkSize = Math.max(8, size * 0.9);
+
+    for (const person of townsfolkAt(state, Date.now(), bounds)) {
+      const px = screenX(person.x) - folkSize / 2;
+      const py = screenY(person.y) - folkSize;
+      if (px < -folkSize || py < -folkSize || px > cssWidth || py > cssHeight) continue;
+
+      // A shadow keeps them on the ground rather than floating.
+      ctx.fillStyle = 'rgba(0,0,0,0.20)';
+      ctx.fillRect(px + folkSize * 0.28, py + folkSize * 0.88, folkSize * 0.44, folkSize * 0.1);
+
+      const id = `person:${person.professionId}${person.facing ? ':flip' : ''}`;
+      drawSprite(ctx, id, px, py, folkSize, folkSize, ambientFrame);
+    }
+
+    // At night they are all indoors, and the houses say so.
+    for (const house of sleepingHouses(state, bounds)) {
+      drawSprite(
+        ctx, 'person:asleep',
+        screenX(house.x), screenY(house.y) - size * 0.6, size, size,
+        Math.floor(ambientFrame / 3)
+      );
+    }
+  }
+
   // --- nests: only the ones the player has actually laid eyes on ---
   // Drawn after territory so a nest inside your borders is unmissable, which
   // is exactly the one you most need to do something about.
@@ -460,21 +503,28 @@ export function drawMap(canvas, state) {
     const cy = screenY(nest.y + 0.5);
     if (cx < -20 || cy < -20 || cx > cssWidth + 20 || cy > cssHeight + 20) continue;
 
-    const radius = Math.max(3, size * 0.42);
+    // The lair: a dark patch of ground the monster is sitting on.
+    const radius = Math.max(3, size * 0.5);
     ctx.beginPath();
-    ctx.arc(cx, cy, radius, 0, Math.PI * 2);
-    ctx.fillStyle = 'rgba(24,10,10,0.85)';
+    ctx.ellipse(cx, cy + radius * 0.55, radius, radius * 0.42, 0, 0, Math.PI * 2);
+    ctx.fillStyle = 'rgba(20,8,8,0.55)';
     ctx.fill();
-    ctx.strokeStyle = '#c65f3f';
-    ctx.lineWidth = 2;
+    ctx.strokeStyle = 'rgba(198,95,63,0.9)';
+    ctx.lineWidth = 1.5;
     ctx.stroke();
 
-    if (size >= 9) {
-      ctx.font = `${Math.round(size * 0.6)}px system-ui, sans-serif`;
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
-      ctx.fillText(monsterDef(nest.speciesId).icon, cx, cy + 1);
-      ctx.textAlign = 'start';
+    if (size >= FOLK_MIN_ZOOM) {
+      const beast = Math.max(10, size * 1.15);
+      drawSprite(
+        ctx, `monster:${nest.speciesId}`,
+        cx - beast / 2, cy + radius * 0.5 - beast, beast, beast, ambientFrame
+      );
+    } else {
+      // Too small to draw: a red dot still says "something lives here".
+      ctx.beginPath();
+      ctx.arc(cx, cy, Math.max(2, size * 0.3), 0, Math.PI * 2);
+      ctx.fillStyle = '#c65f3f';
+      ctx.fill();
     }
   }
 
