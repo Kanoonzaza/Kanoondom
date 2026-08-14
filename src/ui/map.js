@@ -10,6 +10,10 @@ import {
   hallRadius, zoneOf, zoneLabel, isZoneUnlocked, worldCentre,
 } from '../sim/world.js';
 import { BIOMES } from '../content/biomes.js';
+import { TILE, register, drawSprite } from './sprites.js';
+import { terrainTemplates, variantCount } from '../content/art/terrain-art.js';
+import { isSheetOpen } from './panels.js';
+import { dayPeriod, isFullMoon } from '../state.js';
 import {
   FACILITIES, facilityDef, FACILITY_CATEGORIES, CATEGORY_LABELS,
 } from '../content/facilities.js';
@@ -21,6 +25,46 @@ import { RESOURCES } from '../content/resources.js';
 import { monsterDef } from '../content/monsters.js';
 import { auraSources } from '../sim/aura.js';
 import { WORLD, WORLD_TILES_X, WORLD_TILES_Y } from '../content/config.js';
+
+// ---------------------------------------------------------------------------
+// The ambient clock
+// ---------------------------------------------------------------------------
+//
+// Eight frames a second, which is roughly what the games this one is modelled
+// on ran at, and slow enough that it reads as deliberate rather than as a
+// screensaver. Everything that moves on its own — water, lava, torchlight,
+// people — reads this one counter, so the whole town breathes in step.
+//
+// This is a considered amendment to the rule set in M1 that a paused game in
+// the foreground costs nothing. It still costs nothing when the page is
+// hidden, when a sheet covers the map, when the player is on another screen,
+// or when they have asked for reduced motion. But a town you are looking at
+// should be alive, and eight repaints a second of a single blit is a price
+// worth paying for that.
+
+const AMBIENT_FPS = 8;
+
+let ambientFrame = 0;
+
+const prefersReducedMotion = () =>
+  globalThis.matchMedia?.('(prefers-reduced-motion: reduce)').matches === true;
+
+/** Is the map somewhere a person can actually see it move? */
+function ambientWanted() {
+  if (prefersReducedMotion()) return false;
+  if (document.visibilityState === 'hidden') return false;
+  return !isSheetOpen();
+}
+
+/** What the ambient counter should be right now. */
+function ambientNow() {
+  return Math.floor(performance.now() / (1000 / AMBIENT_FPS));
+}
+
+/** What the ambient counter is, for anything that draws a moving thing. */
+export function currentFrame() {
+  return ambientFrame;
+}
 
 /**
  * What the player is currently doing on the map.
@@ -64,24 +108,31 @@ const UNLOCKED_TINT = 'rgba(0,0,0,0.45)';
 // Everything that is sparse or moves — facilities, the ghost, territory rings,
 // nests, worn ground — stays a live pass below, where it costs what it is worth.
 
-let terrainCanvas = null;
+register(terrainTemplates());
+
+/** Two whole-world sheets, one per animation frame. */
+let terrainSheets = null;
 let terrainKey = '';
 
-const FOG_RGB = [0x14, 0x19, 0x26];
-const rgbCache = new Map();
+/** How many animation frames the ground has. Sea and lava are why. */
+export const TERRAIN_FRAMES = 2;
 
-function rgbOf(hex) {
-  let rgb = rgbCache.get(hex);
-  if (!rgb) {
-    const packed = Number.parseInt(hex.slice(1), 16);
-    rgb = [(packed >> 16) & 255, (packed >> 8) & 255, packed & 255];
-    rgbCache.set(hex, rgb);
-  }
-  return rgb;
+/**
+ * Which stamp a tile uses.
+ *
+ * A hash of the position, so a meadow is not one tile repeated ninety-six
+ * times across, and — because it is a pure function of where the tile IS — the
+ * same tile always picks the same stamp and the sheet stays cacheable.
+ */
+function variantAt(x, y, count) {
+  if (count <= 1) return 0;
+  let hash = (x * 374761393 + y * 668265263) | 0;
+  hash = (hash ^ (hash >>> 13)) * 1274126177;
+  return Math.abs(hash ^ (hash >>> 16)) % count;
 }
 
 /**
- * Throw the cached layer away.
+ * Throw the cached sheets away.
  *
  * Needed when the world itself is replaced — a reset, or an imported save —
  * because the key below cannot tell two different worlds apart if they happen
@@ -92,45 +143,79 @@ export function invalidateTerrain() {
 }
 
 /**
- * The terrain layer, rebuilt only when the world it draws has changed.
+ * The ground, drawn once and then only ever blitted.
  *
- * The key is the seed plus the number of tiles brought to light. Fog is the
- * only part of this picture that ever moves, `clearedCount` is maintained
- * rather than counted (see sim/world.js), and it changes only on a player
- * action — so this rebuild happens when somebody explores, and never on a tick.
+ * Each of the 9,216 tiles is a sixteen-pixel painted stamp rather than a flat
+ * colour, which is the single biggest difference between this looking like a
+ * place and looking like a spreadsheet. Painting that per frame would be
+ * thousands of draws; painting it into two whole-world sheets means the map
+ * still costs ONE drawImage per frame, exactly as it did when every tile was a
+ * single pixel.
+ *
+ * Rebuilt only when the world changes: the key is the seed plus the number of
+ * tiles brought to light, `clearedCount` is maintained rather than counted, and
+ * it moves only on a player action — never on a tick.
  */
-function terrainLayer(state) {
+function terrainSheet(state, frame) {
   const key = `${state.seed}/${clearedTileCount(state)}`;
-  if (terrainCanvas && terrainKey === key) return terrainCanvas;
 
-  if (!terrainCanvas) {
-    terrainCanvas = document.createElement('canvas');
-    terrainCanvas.width = WORLD_TILES_X;
-    terrainCanvas.height = WORLD_TILES_Y;
-  }
-
-  const ctx = terrainCanvas.getContext('2d');
-  const image = ctx.createImageData(WORLD_TILES_X, WORLD_TILES_Y);
-  const data = image.data;
-
-  for (let y = 0; y < WORLD_TILES_Y; y++) {
-    for (let x = 0; x < WORLD_TILES_X; x++) {
-      // Unexplored is a flat dark field, so the shape of what you know reads
-      // clearly against what you do not.
-      const rgb = isCleared(state, x, y)
-        ? rgbOf(BIOMES[biomeAt(state, x, y)]?.colour ?? '#333333')
-        : FOG_RGB;
-      const at = (y * WORLD_TILES_X + x) * 4;
-      data[at] = rgb[0];
-      data[at + 1] = rgb[1];
-      data[at + 2] = rgb[2];
-      data[at + 3] = 255;
+  if (!terrainSheets || terrainKey !== key) {
+    if (!terrainSheets) {
+      terrainSheets = [];
+      for (let index = 0; index < TERRAIN_FRAMES; index++) {
+        const canvas = document.createElement('canvas');
+        canvas.width = WORLD_TILES_X * TILE;
+        canvas.height = WORLD_TILES_Y * TILE;
+        terrainSheets.push(canvas);
+      }
     }
+
+    for (let index = 0; index < TERRAIN_FRAMES; index++) {
+      const ctx = terrainSheets[index].getContext('2d');
+      ctx.imageSmoothingEnabled = false;
+      for (let y = 0; y < WORLD_TILES_Y; y++) {
+        for (let x = 0; x < WORLD_TILES_X; x++) {
+          // Unexplored is cloud, so the shape of what you know reads clearly
+          // against what you do not.
+          const biome = isCleared(state, x, y) ? biomeAt(state, x, y) : 'fog';
+          const variant = variantAt(x, y, variantCount(biome));
+          drawSprite(
+            ctx, `terrain:${biome}:${variant}`,
+            x * TILE, y * TILE, TILE, TILE, index
+          );
+        }
+      }
+    }
+    terrainKey = key;
   }
 
-  ctx.putImageData(image, 0, 0);
-  terrainKey = key;
-  return terrainCanvas;
+  return terrainSheets[frame % TERRAIN_FRAMES];
+}
+
+// ---------------------------------------------------------------------------
+// Time of day
+// ---------------------------------------------------------------------------
+
+/**
+ * A wash of colour over the finished map.
+ *
+ * The clock has driven the simulation since V1 — monsters are bolder at night,
+ * caves open on a full moon — and the map has never once shown it. A single
+ * translucent rectangle is the cheapest atmosphere in the game: the same town
+ * reads as morning, noon and midnight without redrawing a thing.
+ */
+const DAY_TINT = {
+  morning: 'rgba(255, 186, 110, 0.13)',
+  day: null,
+  night: 'rgba(18, 26, 66, 0.42)',
+};
+
+const FULL_MOON_TINT = 'rgba(60, 84, 150, 0.34)';
+
+function timeTint(state) {
+  const period = dayPeriod(state).id;
+  if (period === 'night' && isFullMoon(state)) return FULL_MOON_TINT;
+  return DAY_TINT[period] ?? null;
 }
 
 export function zoomBy(factor) {
@@ -210,8 +295,8 @@ export function drawMap(canvas, state) {
   const spanY = lastY - firstY + 1;
   ctx.imageSmoothingEnabled = false;
   ctx.drawImage(
-    terrainLayer(state),
-    firstX, firstY, spanX, spanY,
+    terrainSheet(state, ambientFrame),
+    firstX * TILE, firstY * TILE, spanX * TILE, spanY * TILE,
     screenX(firstX), screenY(firstY), spanX * size, spanY * size
   );
 
@@ -370,6 +455,13 @@ export function drawMap(canvas, state) {
     }
   }
 
+  // --- the hour of the day, over the whole scene ---
+  const tint = timeTint(state);
+  if (tint) {
+    ctx.fillStyle = tint;
+    ctx.fillRect(0, 0, cssWidth, cssHeight);
+  }
+
   return { screenX, screenY, size, cssWidth, cssHeight };
 }
 
@@ -455,15 +547,26 @@ export function createMapView(state, handlers) {
    * is how a paused game can still be panned smoothly and still fall back to
    * zero work the moment the map settles.
    */
-  wrap.animating = () => glide > 0;
+  wrap.animating = () => glide > 0 || ambientWanted();
 
   wrap.step = () => {
-    if (glide <= 0) return;
-    camera.x -= velocityX / camera.zoom;
-    camera.y -= velocityY / camera.zoom;
-    velocityX *= 0.92;
-    velocityY *= 0.92;
-    if (Math.hypot(velocityX, velocityY) < 0.05) glide = 0;
+    if (glide > 0) {
+      camera.x -= velocityX / camera.zoom;
+      camera.y -= velocityY / camera.zoom;
+      velocityX *= 0.92;
+      velocityY *= 0.92;
+      if (Math.hypot(velocityX, velocityY) < 0.05) glide = 0;
+      redraw();
+      return;
+    }
+
+    // Otherwise repaint only when the ambient counter actually turns over.
+    // `step` is called every animation frame; this is what keeps the canvas
+    // work at eight a second rather than sixty.
+    if (!ambientWanted()) return;
+    const now = ambientNow();
+    if (now === ambientFrame) return;
+    ambientFrame = now;
     redraw();
   };
 
