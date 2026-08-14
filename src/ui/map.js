@@ -11,8 +11,13 @@ import {
 } from '../sim/world.js';
 import { BIOMES } from '../content/biomes.js';
 import { TILE, register, drawSprite, hasSprite } from './sprites.js';
-import { terrainTemplates, variantCount } from '../content/art/terrain-art.js';
-import { facilityTemplates } from '../content/art/facilities-art.js';
+import {
+  terrainTemplates, variantCount, ANIMATED_BIOMES, ISO_W, ISO_H,
+} from '../content/art/terrain-art.js';
+import { facilityTemplates, facilityColours } from '../content/art/facilities-art.js';
+import {
+  toScreen, toTile, visibleTileBounds, depthOf, tileWidth, tileHeight,
+} from './iso.js';
 import { peopleTemplates } from '../content/art/people-art.js';
 import { monsterTemplates } from '../content/art/monsters-art.js';
 import { townsfolkAt, sleepingHouses } from './townsfolk.js';
@@ -124,12 +129,24 @@ register(monsterTemplates());
  */
 const FOLK_MIN_ZOOM = 7;
 
-/** Two whole-world sheets, one per animation frame. */
-let terrainSheets = null;
+/** The whole world, painted once into one isometric sheet. */
+let terrainCanvas = null;
 let terrainKey = '';
 
-/** How many animation frames the ground has. Sea and lava are why. */
-export const TERRAIN_FRAMES = 2;
+/** Tiles whose art moves, and so are drawn live rather than baked in. */
+const ANIMATES = new Set(ANIMATED_BIOMES);
+
+/**
+ * Where tile (0,0) sits in the sheet.
+ *
+ * A diamond world runs from x - y = -95 on the far left to +95 on the far
+ * right, so the sheet needs half a world of padding before the origin or the
+ * western half would fall off the left edge.
+ */
+export const SHEET_ORIGIN = WORLD_TILES_X * (ISO_W / 2);
+
+const SHEET_WIDTH = (WORLD_TILES_X + WORLD_TILES_Y) * (ISO_W / 2) + ISO_W;
+const SHEET_HEIGHT = (WORLD_TILES_X + WORLD_TILES_Y) * (ISO_H / 2) + ISO_H;
 
 /**
  * Which stamp a tile uses.
@@ -170,40 +187,42 @@ export function invalidateTerrain() {
  * tiles brought to light, `clearedCount` is maintained rather than counted, and
  * it moves only on a player action — never on a tick.
  */
-function terrainSheet(state, frame) {
+function terrainSheet(state) {
   const key = `${state.seed}/${clearedTileCount(state)}`;
+  if (terrainCanvas && terrainKey === key) return terrainCanvas;
 
-  if (!terrainSheets || terrainKey !== key) {
-    if (!terrainSheets) {
-      terrainSheets = [];
-      for (let index = 0; index < TERRAIN_FRAMES; index++) {
-        const canvas = document.createElement('canvas');
-        canvas.width = WORLD_TILES_X * TILE;
-        canvas.height = WORLD_TILES_Y * TILE;
-        terrainSheets.push(canvas);
-      }
-    }
-
-    for (let index = 0; index < TERRAIN_FRAMES; index++) {
-      const ctx = terrainSheets[index].getContext('2d');
-      ctx.imageSmoothingEnabled = false;
-      for (let y = 0; y < WORLD_TILES_Y; y++) {
-        for (let x = 0; x < WORLD_TILES_X; x++) {
-          // Unexplored is cloud, so the shape of what you know reads clearly
-          // against what you do not.
-          const biome = isCleared(state, x, y) ? biomeAt(state, x, y) : 'fog';
-          const variant = variantAt(x, y, variantCount(biome));
-          drawSprite(
-            ctx, `terrain:${biome}:${variant}`,
-            x * TILE, y * TILE, TILE, TILE, index
-          );
-        }
-      }
-    }
-    terrainKey = key;
+  if (!terrainCanvas) {
+    terrainCanvas = document.createElement('canvas');
+    terrainCanvas.width = SHEET_WIDTH;
+    terrainCanvas.height = SHEET_HEIGHT;
   }
 
-  return terrainSheets[frame % TERRAIN_FRAMES];
+  const ctx = terrainCanvas.getContext('2d');
+  ctx.imageSmoothingEnabled = false;
+  ctx.clearRect(0, 0, SHEET_WIDTH, SHEET_HEIGHT);
+
+  // Back to front, so the bevel on a nearer tile overlaps the one behind it and
+  // the ground reads as a continuous surface rather than as loose lozenges.
+  for (let sum = 0; sum <= (WORLD_TILES_X + WORLD_TILES_Y); sum++) {
+    for (let x = 0; x < WORLD_TILES_X; x++) {
+      const y = sum - x;
+      if (y < 0 || y >= WORLD_TILES_Y) continue;
+
+      // Unexplored is cloud, so the shape of what you know reads clearly
+      // against what you do not.
+      const biome = isCleared(state, x, y) ? biomeAt(state, x, y) : 'fog';
+      const variant = variantAt(x, y, variantCount(biome));
+      drawSprite(
+        ctx, `terrain:${biome}:${variant}`,
+        (x - y) * (ISO_W / 2) + SHEET_ORIGIN - ISO_W / 2,
+        (x + y) * (ISO_H / 2),
+        ISO_W, ISO_H, 0
+      );
+    }
+  }
+
+  terrainKey = key;
+  return terrainCanvas;
 }
 
 // ---------------------------------------------------------------------------
@@ -246,21 +265,40 @@ export function zoomBy(factor) {
  */
 export function zoomAbout(canvas, clientX, clientY, factor) {
   const rect = canvas.getBoundingClientRect();
-  const px = clientX - rect.left - rect.width / 2;
-  const py = clientY - rect.top - rect.height / 2;
+  const px = clientX - rect.left;
+  const py = clientY - rect.top;
 
-  const worldX = camera.x + px / camera.zoom;
-  const worldY = camera.y + py / camera.zoom;
-
+  const before = toTile(px, py, camera, rect.width, rect.height);
   zoomBy(factor);
+  const after = toTile(px, py, camera, rect.width, rect.height);
 
-  camera.x = worldX - px / camera.zoom;
-  camera.y = worldY - py / camera.zoom;
+  // Put back whatever the zoom shifted, so the ground under the fingers stays
+  // under the fingers.
+  camera.x += before.x - after.x;
+  camera.y += before.y - after.y;
 }
 
 export function centreOn(x, y) {
   camera.x = x;
   camera.y = y;
+}
+
+/**
+ * Move the camera by a drag measured in SCREEN pixels.
+ *
+ * On a square grid this was a division. On a diamond one, dragging right moves
+ * the camera along both axes at once — which is the whole point of the
+ * projection, and getting it wrong makes the map slide off at an angle to the
+ * finger.
+ */
+function panBy(dx, dy) {
+  const halfW = tileWidth(camera.zoom) / 2;
+  const halfH = tileHeight(camera.zoom) / 2;
+  const ax = dx / halfW;
+  const ay = dy / halfH;
+
+  camera.x -= (ax + ay) / 2;
+  camera.y -= (ay - ax) / 2;
 }
 
 function clampCamera() {
@@ -269,11 +307,13 @@ function clampCamera() {
 }
 
 /**
- * Draw the visible window of the world.
+ * Draw the visible world.
  *
- * Deliberately simple: one fill per tile. At the default zoom that is roughly
- * 50x40 tiles — two thousand rectangles, which canvas handles comfortably at
- * the few frames a second this map actually needs.
+ * Isometric, and drawn back to front. The order matters more here than it did
+ * on a square grid: in isometric a thing further down the screen is nearer the
+ * viewer, so everything that stands up off the ground — buildings, people,
+ * monsters — is collected first, sorted by depth, and drawn last. That is what
+ * stops a farmhouse being painted over the farmer standing in front of it.
  */
 export function drawMap(canvas, state) {
   const ctx = canvas.getContext('2d');
@@ -290,254 +330,230 @@ export function drawMap(canvas, state) {
   }
 
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-  ctx.clearRect(0, 0, cssWidth, cssHeight);
-
-  const size = camera.zoom;
-  const halfW = cssWidth / 2;
-  const halfH = cssHeight / 2;
-
-  const firstX = Math.max(0, Math.floor(camera.x - halfW / size) - 1);
-  const lastX = Math.min(WORLD_TILES_X - 1, Math.ceil(camera.x + halfW / size) + 1);
-  const firstY = Math.max(0, Math.floor(camera.y - halfH / size) - 1);
-  const lastY = Math.min(WORLD_TILES_Y - 1, Math.ceil(camera.y + halfH / size) + 1);
-
-  const screenX = (tx) => halfW + (tx - camera.x) * size;
-  const screenY = (ty) => halfH + (ty - camera.y) * size;
-
-  // --- terrain: biome and fog, in one blit ---
-  const spanX = lastX - firstX + 1;
-  const spanY = lastY - firstY + 1;
   ctx.imageSmoothingEnabled = false;
+
+  // Nothing lies beyond the world, so what shows past its edges is simply sky.
+  ctx.fillStyle = '#0a0e17';
+  ctx.fillRect(0, 0, cssWidth, cssHeight);
+
+  const tw = tileWidth(camera.zoom);
+  const th = tileHeight(camera.zoom);
+  const scale = tw / ISO_W;
+  const project = (tx, ty) => toScreen(tx, ty, camera, cssWidth, cssHeight);
+
+  // --- the ground, in one blit ---
+  //
+  // The whole world is painted into a single isometric sheet, so the ground
+  // still costs ONE drawImage however far out the camera is pulled. The sheet
+  // is laid out with exactly the projection the screen uses, which makes
+  // placing it a uniform scale and offset rather than a per-tile calculation.
+  const sheet = terrainSheet(state);
+  const sheetX = cssWidth / 2 - (camera.x - camera.y) * (tw / 2) - SHEET_ORIGIN * scale;
+  const sheetY = cssHeight / 2 - (camera.x + camera.y) * (th / 2);
   ctx.drawImage(
-    terrainSheet(state, ambientFrame),
-    firstX * TILE, firstY * TILE, spanX * TILE, spanY * TILE,
-    screenX(firstX), screenY(firstY), spanX * size, spanY * size
+    sheet, 0, 0, sheet.width, sheet.height,
+    sheetX, sheetY, sheet.width * scale, sheet.height * scale
   );
 
-  // --- worn ground: sparse, so walk what is worn rather than every tile ---
+  const view = visibleTileBounds(camera, cssWidth, cssHeight);
+  const firstX = Math.max(0, view.firstX);
+  const lastX = Math.min(WORLD_TILES_X - 1, view.lastX);
+  const firstY = Math.max(0, view.firstY);
+  const lastY = Math.min(WORLD_TILES_Y - 1, view.lastY);
+
+  // --- water and lava, drawn live over the sheet ---
+  //
+  // A second whole-world sheet for the animation frame would be nineteen more
+  // megabytes spent almost entirely on tiles that never change. These two are a
+  // small minority, so they are redrawn on top instead.
+  for (let ty = firstY; ty <= lastY; ty++) {
+    for (let tx = firstX; tx <= lastX; tx++) {
+      if (!isCleared(state, tx, ty)) continue;
+      const biome = biomeAt(state, tx, ty);
+      if (!ANIMATES.has(biome)) continue;
+      const at = project(tx, ty);
+      drawSprite(ctx, `terrain:${biome}:0`, at.x - tw / 2, at.y, tw, th, ambientFrame);
+    }
+  }
+
+  // --- worn ground ---
   for (const [index, worn] of Object.entries(state.world.wasteland)) {
     if (!(worn > 0)) continue;
     const wx = Number(index) % WORLD_TILES_X;
     const wy = Math.floor(Number(index) / WORLD_TILES_X);
     if (wx < firstX || wx > lastX || wy < firstY || wy > lastY) continue;
     if (!isCleared(state, wx, wy)) continue;
+    const at = project(wx, wy);
+    diamondPath(ctx, at.x, at.y, tw, th);
     ctx.fillStyle = `rgba(90,70,45,${0.65 * worn})`;
-    ctx.fillRect(screenX(wx), screenY(wy), size + 1, size + 1);
+    ctx.fill();
   }
 
-  // --- locked country, dimmed as a whole ---
+  // --- locked country ---
   for (let zy = 0; zy < WORLD.zonesY; zy++) {
     for (let zx = 0; zx < WORLD.zonesX; zx++) {
       if (isZoneUnlocked(state, zx, zy)) continue;
-      ctx.fillStyle = UNLOCKED_TINT;
-      ctx.fillRect(
-        screenX(zx * WORLD.zoneTiles),
-        screenY(zy * WORLD.zoneTiles),
-        WORLD.zoneTiles * size,
-        WORLD.zoneTiles * size
-      );
-    }
-  }
+      const x0 = zx * WORLD.zoneTiles;
+      const y0 = zy * WORLD.zoneTiles;
+      const size = WORLD.zoneTiles;
+      const top = project(x0, y0);
+      const right = project(x0 + size, y0);
+      const bottom = project(x0 + size, y0 + size);
+      const left = project(x0, y0 + size);
 
-  // --- facilities ---
-  for (const [origin, facility] of Object.entries(state.world.facilities)) {
-    const def = facilityDef(facility.id);
-    const ox = Number(origin) % WORLD_TILES_X;
-    const oy = Math.floor(Number(origin) / WORLD_TILES_X);
-    const w = def.size.w * size;
-    const h = def.size.h * size;
-    const sx = screenX(ox);
-    const sy = screenY(oy);
-    const finished = facility.built;
-    const footprint = `${def.size.w}x${def.size.h}`;
-
-    // A shadow on the ground, so a building sits on the land rather than
-    // floating over it. Cheap, and it does more for depth than anything else.
-    ctx.fillStyle = 'rgba(0,0,0,0.22)';
-    ctx.fillRect(sx + size * 0.12, sy + h - size * 0.18, w - size * 0.24, size * 0.22);
-
-    if (hasSprite(`facility:${facility.id}`)) {
-      if (!finished) ctx.globalAlpha = 0.75;
-      drawSprite(ctx, `facility:${facility.id}`, sx, sy, w, h, ambientFrame);
-      ctx.globalAlpha = 1;
-    } else {
-      // No art for this one yet: the old box, so nothing ever vanishes.
-      ctx.fillStyle = finished ? 'rgba(28,34,50,0.92)' : 'rgba(28,34,50,0.55)';
-      ctx.fillRect(sx, sy, w, h);
-      ctx.strokeStyle = '#d9a441';
-      ctx.lineWidth = 1.5;
-      ctx.strokeRect(sx + 0.5, sy + 0.5, w - 1, h - 1);
-    }
-
-    // Still going up: scaffolding over it, and how far along it is.
-    if (!finished) {
-      drawSprite(ctx, `overlay:scaffold:${footprint}`, sx, sy, w, h, 0);
-      const progress = 1 - facility.buildTicksRemaining / def.buildTicks;
-      ctx.fillStyle = 'rgba(0,0,0,0.55)';
-      ctx.fillRect(sx, sy + h - 3, w, 3);
-      ctx.fillStyle = '#d9a441';
-      ctx.fillRect(sx, sy + h - 3, w * progress, 3);
-    }
-
-    // Broken: cracks across it, and a red cast so it reads at a glance.
-    if (facility.damaged) {
-      drawSprite(ctx, `overlay:cracks:${footprint}`, sx, sy, w, h, 0);
-      ctx.fillStyle = 'rgba(193,75,58,0.28)';
-      ctx.fillRect(sx, sy, w, h);
-    }
-
-    // Levels as pips along the eaves rather than a text label: readable at a
-    // glance, and it does not need a font at four pixels a tile.
-    if (facility.level > 1 && size >= 6) {
-      const pip = Math.max(2, Math.round(size * 0.16));
-      for (let i = 0; i < facility.level - 1; i++) {
-        ctx.fillStyle = '#241f2b';
-        ctx.fillRect(sx + 2 + i * (pip + 2), sy + 2, pip + 1, pip + 1);
-        ctx.fillStyle = '#f2cd72';
-        ctx.fillRect(sx + 2 + i * (pip + 2), sy + 2, pip, pip);
-      }
-    }
-  }
-
-  // --- build ghost: show whether it fits BEFORE committing ---
-  if (mapMode.building && mapMode.hover) {
-    const def = facilityDef(mapMode.building);
-    const { x: hx, y: hy } = mapMode.hover;
-    const allowed = canPlace(state, hx, hy, mapMode.building).ok;
-    const gw = def.size.w * size;
-    const gh = def.size.h * size;
-
-    // The actual building, half-there, so the player is judging the thing they
-    // are about to build rather than a coloured rectangle.
-    ctx.globalAlpha = 0.55;
-    drawSprite(ctx, `facility:${mapMode.building}`, screenX(hx), screenY(hy), gw, gh, ambientFrame);
-    ctx.globalAlpha = 1;
-
-    ctx.fillStyle = allowed ? 'rgba(124,196,127,0.32)' : 'rgba(224,104,95,0.42)';
-    ctx.fillRect(screenX(hx), screenY(hy), gw, gh);
-    ctx.strokeStyle = allowed ? '#7cc47f' : '#e0685f';
-    ctx.lineWidth = 2;
-    ctx.strokeRect(screenX(hx), screenY(hy), gw, gh);
-
-    // Its reach, so the player can see what the aura would cover.
-    if (def.aura) {
-      ctx.strokeStyle = 'rgba(217,164,65,0.4)';
-      ctx.setLineDash([4, 4]);
-      ctx.strokeRect(
-        screenX(hx - def.aura.radius), screenY(hy - def.aura.radius),
-        (def.size.w + def.aura.radius * 2) * size,
-        (def.size.h + def.aura.radius * 2) * size
-      );
-      ctx.setLineDash([]);
-    }
-  }
-
-  // --- zone grid ---
-  if (size >= 4) {
-    ctx.strokeStyle = 'rgba(255,255,255,0.07)';
-    ctx.lineWidth = 1;
-    ctx.beginPath();
-    for (let zx = 0; zx <= WORLD.zonesX; zx++) {
-      const sx = Math.round(screenX(zx * WORLD.zoneTiles)) + 0.5;
-      ctx.moveTo(sx, screenY(0));
-      ctx.lineTo(sx, screenY(WORLD_TILES_Y));
-    }
-    for (let zy = 0; zy <= WORLD.zonesY; zy++) {
-      const sy = Math.round(screenY(zy * WORLD.zoneTiles)) + 0.5;
-      ctx.moveTo(screenX(0), sy);
-      ctx.lineTo(screenX(WORLD_TILES_X), sy);
-    }
-    ctx.stroke();
-  }
-
-  // --- territory: a ring per Town Hall, since that is literally what it is ---
-  for (const hall of state.townHalls) {
-    const radius = hallRadius(hall) * size;
-    ctx.beginPath();
-    ctx.arc(screenX(hall.x + 0.5), screenY(hall.y + 0.5), radius, 0, Math.PI * 2);
-    ctx.strokeStyle = 'rgba(217,164,65,0.85)';
-    ctx.lineWidth = 2;
-    ctx.stroke();
-    ctx.fillStyle = 'rgba(217,164,65,0.07)';
-    ctx.fill();
-    // The hall itself is drawn by the facility pass above — it is a real
-    // facility standing on real tiles, not a marker.
-  }
-
-  // --- the people who live here ---
-  //
-  // After the buildings, so somebody standing in front of a house is drawn in
-  // front of it, and before the nests so a monster is never hidden by a farmer.
-  if (size >= FOLK_MIN_ZOOM) {
-    const bounds = { firstX, lastX, firstY, lastY };
-    const folkSize = Math.max(8, size * 0.9);
-
-    for (const person of townsfolkAt(state, Date.now(), bounds)) {
-      const px = screenX(person.x) - folkSize / 2;
-      const py = screenY(person.y) - folkSize;
-      if (px < -folkSize || py < -folkSize || px > cssWidth || py > cssHeight) continue;
-
-      // A shadow keeps them on the ground rather than floating.
-      ctx.fillStyle = 'rgba(0,0,0,0.20)';
-      ctx.fillRect(px + folkSize * 0.28, py + folkSize * 0.88, folkSize * 0.44, folkSize * 0.1);
-
-      const id = `person:${person.professionId}${person.facing ? ':flip' : ''}`;
-      drawSprite(ctx, id, px, py, folkSize, folkSize, ambientFrame);
-    }
-
-    // At night they are all indoors, and the houses say so.
-    for (const house of sleepingHouses(state, bounds)) {
-      drawSprite(
-        ctx, 'person:asleep',
-        screenX(house.x), screenY(house.y) - size * 0.6, size, size,
-        Math.floor(ambientFrame / 3)
-      );
-    }
-  }
-
-  // --- nests: only the ones the player has actually laid eyes on ---
-  // Drawn after territory so a nest inside your borders is unmissable, which
-  // is exactly the one you most need to do something about.
-  for (const nest of knownNests(state)) {
-    const cx = screenX(nest.x + 0.5);
-    const cy = screenY(nest.y + 0.5);
-    if (cx < -20 || cy < -20 || cx > cssWidth + 20 || cy > cssHeight + 20) continue;
-
-    // The lair: a dark patch of ground the monster is sitting on.
-    const radius = Math.max(3, size * 0.5);
-    ctx.beginPath();
-    ctx.ellipse(cx, cy + radius * 0.55, radius, radius * 0.42, 0, 0, Math.PI * 2);
-    ctx.fillStyle = 'rgba(20,8,8,0.55)';
-    ctx.fill();
-    ctx.strokeStyle = 'rgba(198,95,63,0.9)';
-    ctx.lineWidth = 1.5;
-    ctx.stroke();
-
-    if (size >= FOLK_MIN_ZOOM) {
-      const beast = Math.max(10, size * 1.15);
-      drawSprite(
-        ctx, `monster:${nest.speciesId}`,
-        cx - beast / 2, cy + radius * 0.5 - beast, beast, beast, ambientFrame
-      );
-    } else {
-      // Too small to draw: a red dot still says "something lives here".
       ctx.beginPath();
-      ctx.arc(cx, cy, Math.max(2, size * 0.3), 0, Math.PI * 2);
-      ctx.fillStyle = '#c65f3f';
+      ctx.moveTo(top.x, top.y);
+      ctx.lineTo(right.x, right.y);
+      ctx.lineTo(bottom.x, bottom.y);
+      ctx.lineTo(left.x, left.y);
+      ctx.closePath();
+      ctx.fillStyle = UNLOCKED_TINT;
       ctx.fill();
     }
   }
 
+  // --- territory: a ring on the ground, so it reads as painted on the land ---
+  for (const hall of state.townHalls) {
+    const radius = hallRadius(hall);
+    ctx.beginPath();
+    for (let step = 0; step <= 48; step++) {
+      const angle = (step / 48) * Math.PI * 2;
+      const at = project(
+        hall.x + 0.5 + Math.cos(angle) * radius,
+        hall.y + 0.5 + Math.sin(angle) * radius
+      );
+      if (step === 0) ctx.moveTo(at.x, at.y);
+      else ctx.lineTo(at.x, at.y);
+    }
+    ctx.closePath();
+    ctx.strokeStyle = 'rgba(217,164,65,0.85)';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+    ctx.fillStyle = 'rgba(217,164,65,0.06)';
+    ctx.fill();
+  }
+
+  // --- the build ghost, on the ground under everything that stands on it ---
+  if (mapMode.building && mapMode.hover) {
+    const def = facilityDef(mapMode.building);
+    const { x: hx, y: hy } = mapMode.hover;
+    const allowed = canPlace(state, hx, hy, mapMode.building).ok;
+    footprintPath(ctx, project, hx, hy, def.size.w, def.size.h);
+    ctx.fillStyle = allowed ? 'rgba(124,196,127,0.45)' : 'rgba(224,104,95,0.5)';
+    ctx.fill();
+    ctx.strokeStyle = allowed ? '#7cc47f' : '#e0685f';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+  }
+
+  // -------------------------------------------------------------------------
+  // Everything that stands up, back to front
+  // -------------------------------------------------------------------------
+
+  const standing = [];
+
+  for (const [origin, facility] of Object.entries(state.world.facilities)) {
+    const def = facilityDef(facility.id);
+    const ox = Number(origin) % WORLD_TILES_X;
+    const oy = Math.floor(Number(origin) / WORLD_TILES_X);
+    if (ox + def.size.w < firstX || ox > lastX + 1) continue;
+    if (oy + def.size.h < firstY || oy > lastY + 1) continue;
+
+    standing.push({
+      depth: depthOf(ox + def.size.w - 1, oy + def.size.h - 1),
+      draw: () => drawFacility(ctx, project, state, facility, def, ox, oy, tw, th),
+    });
+  }
+
+  if (camera.zoom >= FOLK_MIN_ZOOM) {
+    const bounds = { firstX, lastX, firstY, lastY };
+    const folkHeight = th * 2.4;
+
+    for (const person of townsfolkAt(state, Date.now(), bounds)) {
+      standing.push({
+        depth: depthOf(Math.floor(person.x), Math.floor(person.y)) + 1,
+        draw: () => {
+          const at = project(person.x, person.y);
+          ctx.fillStyle = 'rgba(0,0,0,0.22)';
+          ctx.beginPath();
+          ctx.ellipse(at.x, at.y, folkHeight * 0.16, folkHeight * 0.08, 0, 0, Math.PI * 2);
+          ctx.fill();
+          drawSprite(
+            ctx, `person:${person.professionId}${person.facing ? ':flip' : ''}`,
+            at.x - folkHeight / 2, at.y - folkHeight * 0.92,
+            folkHeight, folkHeight, ambientFrame
+          );
+        },
+      });
+    }
+
+    for (const house of sleepingHouses(state, bounds)) {
+      standing.push({
+        depth: depthOf(house.x, house.y) + 2,
+        draw: () => {
+          const at = project(house.x + 0.5, house.y + 0.5);
+          drawSprite(
+            ctx, 'person:asleep',
+            at.x - folkHeight / 2, at.y - folkHeight * 1.4,
+            folkHeight, folkHeight, Math.floor(ambientFrame / 3)
+          );
+        },
+      });
+    }
+  }
+
+  for (const nest of knownNests(state)) {
+    if (nest.x < firstX - 2 || nest.x > lastX + 2) continue;
+    if (nest.y < firstY - 2 || nest.y > lastY + 2) continue;
+
+    standing.push({
+      depth: depthOf(nest.x, nest.y),
+      draw: () => {
+        const at = project(nest.x + 0.5, nest.y + 0.5);
+        ctx.beginPath();
+        ctx.ellipse(at.x, at.y, tw * 0.42, th * 0.42, 0, 0, Math.PI * 2);
+        ctx.fillStyle = 'rgba(20,8,8,0.55)';
+        ctx.fill();
+        ctx.strokeStyle = 'rgba(198,95,63,0.9)';
+        ctx.lineWidth = 1.5;
+        ctx.stroke();
+
+        if (camera.zoom >= FOLK_MIN_ZOOM) {
+          const beast = th * 2.6;
+          drawSprite(
+            ctx, `monster:${nest.speciesId}`,
+            at.x - beast / 2, at.y - beast * 0.86, beast, beast, ambientFrame
+          );
+        } else {
+          ctx.beginPath();
+          ctx.arc(at.x, at.y, Math.max(2, tw * 0.14), 0, Math.PI * 2);
+          ctx.fillStyle = '#c65f3f';
+          ctx.fill();
+        }
+      },
+    });
+  }
+
+  standing.sort((a, b) => a.depth - b.depth);
+  for (const thing of standing) thing.draw();
+
   // --- zone labels, once tiles are big enough to read them ---
-  if (size >= 6) {
-    ctx.fillStyle = 'rgba(233,227,213,0.35)';
+  if (camera.zoom >= 6) {
+    ctx.fillStyle = 'rgba(233,227,213,0.4)';
     ctx.font = '600 11px system-ui, sans-serif';
     ctx.textBaseline = 'top';
+    ctx.textAlign = 'center';
     for (let zy = 0; zy < WORLD.zonesY; zy++) {
       for (let zx = 0; zx < WORLD.zonesX; zx++) {
-        ctx.fillText(zoneLabel(zx, zy), screenX(zx * WORLD.zoneTiles) + 4, screenY(zy * WORLD.zoneTiles) + 3);
+        const at = project(
+          zx * WORLD.zoneTiles + WORLD.zoneTiles / 2,
+          zy * WORLD.zoneTiles + WORLD.zoneTiles / 2
+        );
+        if (at.x < 0 || at.y < 0 || at.x > cssWidth || at.y > cssHeight) continue;
+        ctx.fillText(zoneLabel(zx, zy), at.x, at.y);
       }
     }
+    ctx.textAlign = 'start';
   }
 
   // --- the hour of the day, over the whole scene ---
@@ -547,17 +563,128 @@ export function drawMap(canvas, state) {
     ctx.fillRect(0, 0, cssWidth, cssHeight);
   }
 
-  return { screenX, screenY, size, cssWidth, cssHeight };
+  return { project, tw, th, cssWidth, cssHeight };
+}
+
+/** The diamond of a single tile, as a path ready to fill or stroke. */
+function diamondPath(ctx, topX, topY, tw, th) {
+  ctx.beginPath();
+  ctx.moveTo(topX, topY);
+  ctx.lineTo(topX + tw / 2, topY + th / 2);
+  ctx.lineTo(topX, topY + th);
+  ctx.lineTo(topX - tw / 2, topY + th / 2);
+  ctx.closePath();
+}
+
+/** The diamond covering a whole building footprint. */
+function footprintPath(ctx, project, ox, oy, w, h) {
+  const top = project(ox, oy);
+  const right = project(ox + w, oy);
+  const bottom = project(ox + w, oy + h);
+  const left = project(ox, oy + h);
+
+  ctx.beginPath();
+  ctx.moveTo(top.x, top.y);
+  ctx.lineTo(right.x, right.y);
+  ctx.lineTo(bottom.x, bottom.y);
+  ctx.lineTo(left.x, left.y);
+  ctx.closePath();
+}
+
+/**
+ * One building, as a solid standing on its footprint.
+ *
+ * Drawn rather than stamped from a sprite: a building can be any of five
+ * footprints and needs to sit exactly on its diamond, and a box with a lit
+ * left face, a shaded right face and a flat top is what reads as "a solid
+ * thing on the ground" in isometric. The interiors come next.
+ */
+function drawFacility(ctx, project, state, facility, def, ox, oy, tw, th) {
+  const colours = facilityColours(facility.id);
+  const w = def.size.w;
+  const h = def.size.h;
+  const lift = th * (def.housing || def.isTownHall ? 1.5 : 1.05);
+
+  const top = project(ox, oy);
+  const right = project(ox + w, oy);
+  const bottom = project(ox + w, oy + h);
+  const left = project(ox, oy + h);
+
+  // A shadow on the ground first, so the building sits on the land.
+  footprintPath(ctx, project, ox, oy, w, h);
+  ctx.fillStyle = 'rgba(0,0,0,0.25)';
+  ctx.fill();
+
+  const raise = (point) => ({ x: point.x, y: point.y - lift });
+
+  // Left face, catching the light.
+  ctx.beginPath();
+  ctx.moveTo(left.x, left.y);
+  ctx.lineTo(bottom.x, bottom.y);
+  ctx.lineTo(raise(bottom).x, raise(bottom).y);
+  ctx.lineTo(raise(left).x, raise(left).y);
+  ctx.closePath();
+  ctx.fillStyle = colours.wall;
+  ctx.fill();
+
+  // Right face, in shade.
+  ctx.beginPath();
+  ctx.moveTo(bottom.x, bottom.y);
+  ctx.lineTo(right.x, right.y);
+  ctx.lineTo(raise(right).x, raise(right).y);
+  ctx.lineTo(raise(bottom).x, raise(bottom).y);
+  ctx.closePath();
+  ctx.fillStyle = colours.wallShade;
+  ctx.fill();
+
+  // The top.
+  ctx.beginPath();
+  ctx.moveTo(raise(top).x, raise(top).y);
+  ctx.lineTo(raise(right).x, raise(right).y);
+  ctx.lineTo(raise(bottom).x, raise(bottom).y);
+  ctx.lineTo(raise(left).x, raise(left).y);
+  ctx.closePath();
+  ctx.fillStyle = facility.built ? colours.roof : 'rgba(120,120,120,0.55)';
+  ctx.fill();
+  ctx.strokeStyle = colours.roofShade;
+  ctx.lineWidth = 1;
+  ctx.stroke();
+
+  if (!facility.built) {
+    const progress = 1 - facility.buildTicksRemaining / def.buildTicks;
+    const barWidth = tw * w * 0.5;
+    ctx.fillStyle = 'rgba(0,0,0,0.6)';
+    ctx.fillRect(bottom.x - barWidth / 2, bottom.y - lift - 4, barWidth, 4);
+    ctx.fillStyle = '#d9a441';
+    ctx.fillRect(bottom.x - barWidth / 2, bottom.y - lift - 4, barWidth * progress, 4);
+  }
+
+  if (facility.damaged) {
+    footprintPath(ctx, project, ox, oy, w, h);
+    ctx.fillStyle = 'rgba(193,75,58,0.35)';
+    ctx.fill();
+  }
+
+  if (facility.level > 1 && camera.zoom >= 6) {
+    const pip = Math.max(2, th * 0.18);
+    for (let i = 0; i < facility.level - 1; i++) {
+      ctx.fillStyle = '#f2cd72';
+      ctx.fillRect(
+        raise(left).x + 3 + i * (pip + 2), raise(left).y - pip - 2, pip, pip
+      );
+    }
+  }
 }
 
 /** Turn a click position into a tile, or null if it missed the world. */
 export function tileAtPointer(canvas, clientX, clientY) {
   const rect = canvas.getBoundingClientRect();
-  const px = clientX - rect.left;
-  const py = clientY - rect.top;
+  const at = toTile(
+    clientX - rect.left, clientY - rect.top, camera, rect.width, rect.height
+  );
 
-  const x = Math.floor(camera.x + (px - rect.width / 2) / camera.zoom);
-  const y = Math.floor(camera.y + (py - rect.height / 2) / camera.zoom);
+  const x = Math.floor(at.x);
+  const y = Math.floor(at.y);
   return inBounds(x, y) ? { x, y } : null;
 }
 
@@ -636,8 +763,7 @@ export function createMapView(state, handlers) {
 
   wrap.step = () => {
     if (glide > 0) {
-      camera.x -= velocityX / camera.zoom;
-      camera.y -= velocityY / camera.zoom;
+      panBy(velocityX, velocityY);
       velocityX *= 0.92;
       velocityY *= 0.92;
       if (Math.hypot(velocityX, velocityY) < 0.05) glide = 0;
@@ -715,8 +841,7 @@ export function createMapView(state, handlers) {
       }
       lastMoveAt = event.timeStamp;
 
-      camera.x -= dx / camera.zoom;
-      camera.y -= dy / camera.zoom;
+      panBy(dx, dy);
       redraw();
       return;
     }
@@ -728,8 +853,7 @@ export function createMapView(state, handlers) {
       if (pinch.spread > 0 && now.spread > 0) {
         zoomAbout(canvas, now.x, now.y, now.spread / pinch.spread);
       }
-      camera.x -= (now.x - pinch.x) / camera.zoom;
-      camera.y -= (now.y - pinch.y) / camera.zoom;
+      panBy(now.x - pinch.x, now.y - pinch.y);
       pinch = now;
       dragged += 10;
       redraw();

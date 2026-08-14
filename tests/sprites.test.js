@@ -16,7 +16,9 @@ import assert from 'node:assert/strict';
 
 import { validateTemplate, parseColour, TILE } from '../src/ui/sprites.js';
 import { P } from '../src/content/art/palette.js';
-import { TERRAIN_ART, terrainTemplates, variantCount } from '../src/content/art/terrain-art.js';
+import {
+  TERRAIN_ART, terrainTemplates, variantCount, ISO_W, ISO_H,
+} from '../src/content/art/terrain-art.js';
 import { BIOMES } from '../src/content/biomes.js';
 import { facilityTemplates, facilityArtIds } from '../src/content/art/facilities-art.js';
 import { FACILITIES } from '../src/content/facilities.js';
@@ -38,15 +40,34 @@ test('every terrain template is a well-formed grid', () => {
   }
 });
 
-test('every terrain tile is exactly one tile square', () => {
+test('every terrain tile is exactly one isometric diamond', () => {
   for (const [id, template] of Object.entries(terrainTemplates())) {
     for (const frame of template.frames) {
-      assert.equal(frame.length, TILE, `${id}: ${frame.length} rows, expected ${TILE}`);
+      assert.equal(frame.length, ISO_H, `${id}: ${frame.length} rows, expected ${ISO_H}`);
       for (const row of frame) {
-        assert.equal(row.length, TILE, `${id}: a row is ${row.length}, expected ${TILE}`);
+        assert.equal(row.length, ISO_W, `${id}: a row is ${row.length}, expected ${ISO_W}`);
       }
     }
   }
+});
+
+test('a ground tile really is a diamond, not a rectangle', () => {
+  // The corners must be transparent and the middle solid, or the tiles would
+  // tile as squares again and the whole projection would be a lie.
+  const grass = terrainTemplates()['terrain:grass:0'].frames[0];
+  const solid = (row) => [...row].filter((char) => char !== '.').length;
+
+  assert.equal(solid(grass[0]), 4, 'the top row is the tip of the diamond');
+  assert.equal(solid(grass[ISO_H - 1]), 4, 'and so is the bottom');
+  assert.equal(solid(grass[ISO_H / 2 - 1]), ISO_W, 'the middle spans the full width');
+  assert.equal(grass[0][0], '.', 'the corners are empty');
+  assert.equal(grass[0][ISO_W - 1], '.');
+});
+
+test('the diamond is twice as wide as it is tall', () => {
+  // 2:1 is what makes the grid read as isometric rather than as a squashed
+  // top-down view, and every projection sum in ui/iso.js assumes it.
+  assert.equal(ISO_W, ISO_H * 2);
 });
 
 test('every biome in the game has ground art', () => {

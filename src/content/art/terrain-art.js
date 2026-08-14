@@ -1,10 +1,22 @@
-// Ground.
+// Ground, on the diamond.
 //
-// Eight biomes at sixteen pixels to a tile. The old map filled one flat colour
-// per tile and scaled it up, which is why it read as a spreadsheet: at any zoom
-// the whole world was made of identical squares.
+// A tile is a 32x16 DIAMOND now: twice as wide as it is tall, which is the 2:1
+// isometric the whole map is drawn on. The square grid this file started with
+// was half the reason the game looked nothing like the one it is modelled on.
 //
-// Three things fix that, and the first draft of this file managed only one:
+// Diamonds are miserable to author directly — the first row is four pixels
+// wide, every row after it is a different width, and one edit shifts the whole
+// shape. So the textures below stay ordinary RECTANGLES, sixteen by sixteen,
+// which are easy to read and easy to change. `diamond()` doubles one
+// horizontally into a 32-wide block and masks it into the tile shape, then
+// lightens the two upper edges and darkens the two lower ones.
+//
+// That bevel is what makes isometric ground read as ground rather than as
+// wallpaper: every tile gets a lit face and a shaded face, so the surface looks
+// like a solid thing seen from above at an angle.
+//
+// The texture rules themselves have not changed, and the first draft got only
+// one of the three:
 //
 //   COVERAGE. Scattering a handful of darker dots over a flat fill still looks
 //   like a flat fill with dust on it. Texture has to cover a good third of the
@@ -26,11 +38,57 @@
 
 import { P } from './palette.js';
 
+/** A tile's artwork is 32 wide and 16 tall: the 2:1 isometric diamond. */
+export const ISO_W = 32;
+export const ISO_H = 16;
+
+/**
+ * How wide the diamond is on a given row, and where that row starts.
+ *
+ * Four pixels at the tip rather than two: a two-pixel point vanishes at small
+ * zooms and leaves visible gaps between neighbouring tiles.
+ */
+function span(y) {
+  const step = y < ISO_H / 2 ? y : ISO_H - 1 - y;
+  const width = 4 + step * 4;
+  return { start: (ISO_W - width) / 2, width };
+}
+
+/**
+ * Turn a 16x16 texture into a bevelled 32x16 diamond.
+ *
+ * The texture is doubled horizontally rather than re-authored at 32 wide. It
+ * was written to tile seamlessly in the first place, so the two halves meet
+ * without a seam — and it means none of this artwork had to be counted out
+ * again by hand.
+ */
+function diamond(texture, light, dark) {
+  const wide = texture.map((row) => row + row);
+  const rows = [];
+
+  for (let y = 0; y < ISO_H; y++) {
+    const { start, width } = span(y);
+    const row = '.'.repeat(ISO_W).split('');
+
+    for (let i = 0; i < width; i++) {
+      const x = start + i;
+      const onEdge = i < 2 || i >= width - 2;
+      const upper = y < ISO_H / 2;
+
+      row[x] = onEdge ? (upper ? light : dark) : wide[y][x];
+    }
+    rows.push(row.join(''));
+  }
+
+  return rows;
+}
+
 // ---------------------------------------------------------------------------
 // Grass: upright blades in clumps, over a mottled base
 // ---------------------------------------------------------------------------
 
 const grassPalette = {
+  '.': null,
   g: P.grass, d: P.grassDark, l: P.grassLight, t: P.grassTuft,
   f: P.thatchLight, w: P.plaster,
 };
@@ -104,7 +162,7 @@ const grassC = [
 // Soil: broken furrows, with stones turned up in them
 // ---------------------------------------------------------------------------
 
-const soilPalette = { s: P.soil, d: P.soilDark, l: P.soilLight, r: P.soilStone };
+const soilPalette = { '.': null, s: P.soil, d: P.soilDark, l: P.soilLight, r: P.soilStone };
 
 const soilA = [
   'ddddssssddddddss',
@@ -149,6 +207,7 @@ const soilB = [
 // ---------------------------------------------------------------------------
 
 const swampPalette = {
+  '.': null,
   s: P.swamp, d: P.swampDark, w: P.swampWater, l: P.swampLight,
 };
 
@@ -175,7 +234,7 @@ const swampA = [
 // Desert: wind ripples running across the dunes
 // ---------------------------------------------------------------------------
 
-const sandPalette = { s: P.sand, d: P.sandDark, l: P.sandLight, r: P.sandStone };
+const sandPalette = { '.': null, s: P.sand, d: P.sandDark, l: P.sandLight, r: P.sandStone };
 
 const sandA = [
   'sslllssssssllsss',
@@ -219,7 +278,7 @@ const sandB = [
 // Rock: boulders with a lit top edge and a shadow beneath
 // ---------------------------------------------------------------------------
 
-const rockPalette = { r: P.rock, d: P.rockDark, l: P.rockLight, c: P.rockCrack };
+const rockPalette = { '.': null, r: P.rock, d: P.rockDark, l: P.rockLight, c: P.rockCrack };
 
 const rockA = [
   'llllrrcdllllrrcd',
@@ -263,7 +322,7 @@ const rockB = [
 // Snow: drifts, with packed ice blue in the hollows
 // ---------------------------------------------------------------------------
 
-const snowPalette = { s: P.snow, d: P.snowDark, l: P.snowLight, b: P.snowBlue };
+const snowPalette = { '.': null, s: P.snow, d: P.snowDark, l: P.snowLight, b: P.snowBlue };
 
 const snowA = [
   'llllssssddddssss',
@@ -308,6 +367,7 @@ const snowB = [
 // ---------------------------------------------------------------------------
 
 const lavaPalette = {
+  '.': null,
   r: P.lavaRock, d: P.lavaDark, g: P.lavaGlow, h: P.lavaHot, b: P.lavaBright,
 };
 
@@ -353,7 +413,7 @@ const lavaB = [
 // Sea: bands of swell, with foam on the crests
 // ---------------------------------------------------------------------------
 
-const seaPalette = { s: P.sea, d: P.seaDark, l: P.seaLight, f: P.seaFoam };
+const seaPalette = { '.': null, s: P.sea, d: P.seaDark, l: P.seaLight, f: P.seaFoam };
 
 const seaA = [
   'ssssddddssssdddd',
@@ -397,7 +457,7 @@ const seaB = [
 // Fog: cloud lying over land nobody has walked yet
 // ---------------------------------------------------------------------------
 
-const fogPalette = { f: P.fog, d: P.fogDark, l: P.fogLight };
+const fogPalette = { '.': null, f: P.fog, d: P.fogDark, l: P.fogLight };
 
 const fogA = [
   'ffffdddffffffddd',
@@ -425,16 +485,28 @@ const fogA = [
  * variant are animation.
  */
 export const TERRAIN_ART = {
-  grass: { palette: grassPalette, variants: [grassA, grassB, grassC] },
-  soil: { palette: soilPalette, variants: [soilA, soilB] },
-  swamp: { palette: swampPalette, variants: [swampA] },
-  desert: { palette: sandPalette, variants: [sandA, sandB] },
-  rock: { palette: rockPalette, variants: [rockA, rockB] },
-  snow: { palette: snowPalette, variants: [snowA, snowB] },
-  lava: { palette: lavaPalette, variants: [lavaA], frames: [lavaA, lavaB] },
-  sea: { palette: seaPalette, variants: [seaA], frames: [seaA, seaB] },
-  fog: { palette: fogPalette, variants: [fogA] },
+  grass: { palette: grassPalette, light: 'l', dark: 't', variants: [grassA, grassB, grassC] },
+  soil: { palette: soilPalette, light: 'l', dark: 'r', variants: [soilA, soilB] },
+  swamp: { palette: swampPalette, light: 'l', dark: 'd', variants: [swampA] },
+  desert: { palette: sandPalette, light: 'l', dark: 'r', variants: [sandA, sandB] },
+  rock: { palette: rockPalette, light: 'l', dark: 'c', variants: [rockA, rockB] },
+  snow: { palette: snowPalette, light: 'l', dark: 'b', variants: [snowA, snowB] },
+  lava: { palette: lavaPalette, light: 'h', dark: 'd', frames: [lavaA, lavaB] },
+  sea: { palette: seaPalette, light: 'l', dark: 'd', frames: [seaA, seaB] },
+  fog: { palette: fogPalette, light: 'l', dark: 'd', variants: [fogA] },
 };
+
+/**
+ * Biomes that redraw every frame instead of living in the cached sheet.
+ *
+ * In the square projection the whole world could be held in two sheets, one per
+ * animation frame. A diamond world is three times the pixels, so a second full
+ * sheet is memory spent almost entirely on tiles that never change. Water and
+ * lava are a small minority, so they are drawn live over the top instead.
+ */
+export const ANIMATED_BIOMES = Object.entries(TERRAIN_ART)
+  .filter(([, art]) => Boolean(art.frames))
+  .map(([id]) => id);
 
 /** Templates in the shape the sprite compiler wants: `terrain:grass:0`. */
 export function terrainTemplates() {
@@ -442,11 +514,17 @@ export function terrainTemplates() {
 
   for (const [id, art] of Object.entries(TERRAIN_ART)) {
     if (art.frames) {
-      table[`terrain:${id}:0`] = { palette: art.palette, frames: art.frames };
+      table[`terrain:${id}:0`] = {
+        palette: art.palette,
+        frames: art.frames.map((tex) => diamond(tex, art.light, art.dark)),
+      };
       continue;
     }
     art.variants.forEach((variant, index) => {
-      table[`terrain:${id}:${index}`] = { palette: art.palette, frames: [variant] };
+      table[`terrain:${id}:${index}`] = {
+        palette: art.palette,
+        frames: [diamond(variant, art.light, art.dark)],
+      };
     });
   }
 

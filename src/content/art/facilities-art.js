@@ -622,6 +622,25 @@ export function facilityTemplates() {
   return table;
 }
 
+/**
+ * The colours a facility is built from.
+ *
+ * The isometric map draws buildings as solids rather than stamping a flat
+ * picture, so it needs the scheme rather than the sprite. Same table either
+ * way, so a Town Hall stays civic blue and a barn stays thatch whichever way
+ * it is drawn.
+ */
+export function facilityColours(id) {
+  const spec = BUILDINGS[id];
+  if (spec) return SCHEME[spec.scheme];
+
+  // Paths, walls, torches and the like: ground furniture rather than buildings.
+  return {
+    roof: P.stone, roofShade: P.stoneDark, roofLight: P.stoneLight,
+    wall: P.stone, wallShade: P.stoneDark, wallLight: P.stoneLight,
+  };
+}
+
 /** Which facilities have artwork. Used by the coverage test. */
 export function facilityArtIds() {
   return [...Object.keys(GROUND), ...Object.keys(BUILDINGS)];
