@@ -3,7 +3,7 @@
 // The only module allowed to touch both the simulation and the DOM.
 
 import {
-  newGame, loadFromStorage, saveToStorage,
+  newGame, loadFromStorage, saveToStorage, deserialize, requestPersistence,
   seasonIndex, yearOf, seasonName, ticksIntoSeason,
   dayPeriod, dayNumber, isFullMoon,
 } from './state.js';
@@ -16,6 +16,7 @@ import { el, mount, short } from './ui/dom.js';
 import { createMapView, tileSheet, buildSheet, centreOn, mapMode } from './ui/map.js';
 import { openSheet, closeSheet, isSheetOpen, toast } from './ui/panels.js';
 import { initNav, goToScreen } from './ui/nav.js';
+import { settingsSheet } from './ui/settings.js';
 import { renderPeople, residentSheet } from './ui/people.js';
 import { renderStudy } from './ui/study.js';
 import { renderForge, skillSheet } from './ui/forge.js';
@@ -41,6 +42,8 @@ import {
   beginCatchUp, runCatchUpChunk, catchUpDone, finishCatchUp,
 } from './sim/offline.js';
 import { place, remove, upgrade, repair, palette, canPlace } from './sim/facilities.js';
+import { BACKUP_KEY, serialize } from './state.js';
+import { invalidateTerrain } from './ui/map.js';
 import { productionRates, storageCapacity, fullStores } from './sim/economy.js';
 import { RESOURCES, RESOURCE_IDS } from './content/resources.js';
 import { facilityDef } from './content/facilities.js';
@@ -54,6 +57,9 @@ const view = { screen: 'world' };
 let screenDirty = true;
 let hudDirty = true;
 let paintQueued = false;
+
+/** Set when another window has taken this kingdom over. Nothing runs after it. */
+let frozen = false;
 
 /**
  * How a long absence is walked.
@@ -92,8 +98,11 @@ function markDirty() {
 // --- boot ------------------------------------------------------------------
 
 function boot() {
+  let restoredFromBackup = false;
   try {
     state = loadFromStorage();
+    restoredFromBackup = state?.restoredFromBackup === true;
+    if (state) delete state.restoredFromBackup;
   } catch (err) {
     console.warn('Could not read the save:', err.message);
     state = null;
@@ -103,7 +112,7 @@ function boot() {
     state = newGame();
     // You start knowing your own land.
     state.stats.tilesCleared += clearTerritoryFog(state);
-    saveToStorage(state);
+    save();
   }
 
   speed = state.settings.defaultSpeed ?? 1;
@@ -114,6 +123,24 @@ function boot() {
   // Paint before the first animation frame: a backgrounded tab never gets one.
   paint(performance.now());
   resume();
+
+  if (restoredFromBackup) {
+    // Never quietly. Handing somebody an older kingdom without saying so is its
+    // own kind of loss — they would find the gap themselves, later, and wonder.
+    toast({
+      title: 'Restored from a backup',
+      rows: [
+        ['', 'The main save could not be read, so the last backup was used.', 'neg'],
+        ['', 'You may have lost up to a day. Export a copy from Settings.'],
+      ],
+      kind: 'warn',
+      ms: 14000,
+      onTap: openSettings,
+    });
+  }
+
+  document.getElementById('settings-btn')?.addEventListener('click', openSettings);
+  guardAgainstASecondWindow();
 
   document.addEventListener('visibilitychange', onVisibilityChange);
   window.addEventListener('pagehide', () => saveToStorage(state));
@@ -229,7 +256,7 @@ function settle(welcome) {
       onGoTo: goToScreen,
     }, closeSheet));
   }
-  saveToStorage(state);
+  save();
   startPlaying();
 }
 
@@ -239,6 +266,13 @@ function startPlaying() {
   hudDirty = true;
   wakeLoop();
   markDirty();
+
+  // Ask once per session; browsers only grant it off the back of real use.
+  requestPersistence().then((granted) => {
+    if (granted !== state.settings.persisted) {
+      state.settings.persisted = granted;
+    }
+  });
 }
 
 /** "Your kingdom is waking" — shown only when the wait would be noticeable. */
@@ -281,12 +315,41 @@ function onVisibilityChange() {
     // page that has just been hidden may never be given another moment to run.
     saveToStorage(state);
     stopLoop();
-  } else {
+  } else if (!frozen) {
     resume();
   }
 }
 
 // --- the loop --------------------------------------------------------------
+
+/**
+ * Save, and say so if it did not work.
+ *
+ * `saveToStorage` has always returned false on a full or unavailable store, and
+ * nothing has ever looked at it: a phone that hit its quota simply stopped
+ * keeping the game, silently, which is the worst possible way for this to fail.
+ * Once per session, because a full store stays full and nobody needs the same
+ * bad news forty times.
+ */
+let warnedAboutStorage = false;
+
+function save() {
+  if (saveToStorage(state)) return true;
+  if (!warnedAboutStorage) {
+    warnedAboutStorage = true;
+    toast({
+      title: 'Could not save',
+      rows: [
+        ['', 'This browser refused to store the game — it may be full.', 'neg'],
+        ['', 'Export a copy from Settings before you close this.'],
+      ],
+      kind: 'bad',
+      ms: 20000,
+      onTap: openSettings,
+    });
+  }
+  return false;
+}
 
 let lastFrame = 0;
 let tickAccumulator = 0;
@@ -310,7 +373,7 @@ function needsFrames() {
  * delta of zero, so the clock sat still at speed 1 while burning 60fps.
  */
 function wakeLoop() {
-  if (rafId !== 0 || document.visibilityState === 'hidden') return;
+  if (frozen || rafId !== 0 || document.visibilityState === 'hidden') return;
   lastFrame = 0;
   rafId = requestAnimationFrame(loop);
 }
@@ -474,7 +537,7 @@ function handleReport(report) {
   const season = seasonIndex(state);
   if (season !== lastSavedSeason) {
     lastSavedSeason = season;
-    saveToStorage(state);
+    save();
   }
 }
 
@@ -726,7 +789,7 @@ const peopleHandlers = {
       kind: 'good',
       ms: 8000,
     });
-    saveToStorage(state);
+    save();
     markDirty();
   },
 
@@ -755,7 +818,7 @@ const studyHandlers = {
       kind: 'good',
       ms: 4000,
     });
-    saveToStorage(state);
+    save();
     markDirty();
   },
 
@@ -767,7 +830,7 @@ const studyHandlers = {
       rows: [['Progress kept', `${Math.floor(result.kept)} points`, 'pos']],
       ms: 4000,
     });
-    saveToStorage(state);
+    save();
     markDirty();
   },
 
@@ -787,7 +850,7 @@ const studyHandlers = {
       ms: 7000,
     });
     announceMapRewards(result.rewards);
-    saveToStorage(state);
+    save();
     markDirty();
   },
 
@@ -808,7 +871,7 @@ const studyHandlers = {
       ms: 8000,
     });
     announceMapRewards(result.rewards);
-    saveToStorage(state);
+    save();
     markDirty();
   },
 };
@@ -846,7 +909,7 @@ const watchHandlers = {
     }
     openSheet(battleSheet(result, closeSheet, { title: 'The nest' }));
     announceEgg(result.egg);
-    saveToStorage(state);
+    save();
     markDirty();
   },
 
@@ -858,7 +921,7 @@ const watchHandlers = {
     }
     openSheet(battleSheet(result, closeSheet, { title: 'The cave' }));
     announceEgg(result.egg);
-    saveToStorage(state);
+    save();
     markDirty();
   },
 };
@@ -892,7 +955,7 @@ const forgeHandlers = {
       kind: 'good',
       ms: 5000,
     });
-    saveToStorage(state);
+    save();
     markDirty();
   },
 
@@ -912,7 +975,7 @@ const forgeHandlers = {
       kind: 'good',
       ms: 6000,
     });
-    saveToStorage(state);
+    save();
     markDirty();
   },
 
@@ -932,7 +995,7 @@ const forgeHandlers = {
       kind: given.length > 0 ? 'good' : 'warn',
       ms: 5000,
     });
-    saveToStorage(state);
+    save();
     markDirty();
   },
 
@@ -945,7 +1008,7 @@ const forgeHandlers = {
       kind: given > 0 ? 'good' : 'warn',
       ms: 5000,
     });
-    saveToStorage(state);
+    save();
     markDirty();
   },
 
@@ -968,7 +1031,7 @@ const forgeHandlers = {
       kind: 'good',
       ms: 5000,
     });
-    saveToStorage(state);
+    save();
     // The sheet is still open and now out of date.
     openSheet(skillSheet(state, resident, forgeHandlers, closeSheet));
     markDirty();
@@ -988,7 +1051,7 @@ const eggHandlers = {
       kind: 'good',
       ms: 6000,
     });
-    saveToStorage(state);
+    save();
     markDirty();
   },
 
@@ -1010,7 +1073,7 @@ const eggHandlers = {
       kind: over ? 'warn' : 'good',
       ms: 6000,
     });
-    saveToStorage(state);
+    save();
     markDirty();
   },
 };
@@ -1131,7 +1194,7 @@ function placeHere(x, y) {
     mapMode.building = null;
   }
   mapMode.hover = null;
-  saveToStorage(state);
+  save();
   markDirty();
 }
 
@@ -1144,7 +1207,7 @@ function onTileAction(action, x, y) {
     return;
   }
   closeSheet();
-  saveToStorage(state);
+  save();
   markDirty();
 }
 
@@ -1240,6 +1303,87 @@ function buildTabs() {
   );
 }
 
+function openSettings() {
+  openSheet(settingsSheet(state, {
+    parse: (text) => deserialize(text),
+    onChanged: () => save(),
+    onRefresh: () => openSettings(),
+    onImport: (incoming) => {
+      // The kingdom being replaced goes to the backup slot first, whatever its
+      // age: an import is the one moment somebody is most likely to want the
+      // previous one back five seconds later.
+      try {
+        globalThis.localStorage?.setItem(BACKUP_KEY, serialize(state));
+      } catch { /* no room for it; the import still stands */ }
+
+      state = incoming;
+      mapMode.building = null;
+      mapMode.hover = null;
+      invalidateTerrain();
+      centreOn(state.townHalls[0].x, state.townHalls[0].y);
+      save();
+      closeSheet();
+      toast({
+        title: 'Kingdom loaded',
+        rows: [['', `${state.residents.length} people are yours now.`, 'pos']],
+        kind: 'good',
+        ms: 6000,
+      });
+      markDirty();
+    },
+    onReset: () => {
+      mapMode.building = null;
+      mapMode.hover = null;
+      view.screen = 'world';
+      state = newGame();
+      state.stats.tilesCleared += clearTerritoryFog(state);
+      invalidateTerrain();
+      centreOn(state.townHalls[0].x, state.townHalls[0].y);
+      save();
+      markDirty();
+      wakeLoop();
+    },
+  }, closeSheet));
+}
+
+/**
+ * Two windows, one save.
+ *
+ * Installing the game makes this likely rather than exotic: the installed app
+ * and a forgotten browser tab both hold a kingdom in memory, and whichever
+ * saves last wins — silently overwriting the other. So a new window announces
+ * itself, and any older one steps aside rather than fight over the file.
+ */
+function guardAgainstASecondWindow() {
+  let channel;
+  try {
+    channel = new BroadcastChannel('kingdom-sim-v2');
+  } catch {
+    return;                       // no BroadcastChannel: nothing we can do
+  }
+
+  channel.addEventListener('message', (event) => {
+    if (event.data !== 'hello' || frozen) return;
+    frozen = true;
+    speed = 0;
+    stopLoop();
+    saveToStorage(state);
+    toast({
+      title: 'Opened somewhere else',
+      rows: [
+        ['', 'This kingdom is now open in another window, so this one has stopped.', 'neg'],
+        ['', 'Reload here to take it back.'],
+      ],
+      kind: 'warn',
+      ms: 60000,
+      onTap: () => globalThis.location.reload(),
+    });
+    markDirty();
+  });
+
+  channel.postMessage('hello');
+}
+
 /** Put a screen on. Called by ui/nav.js once the back stack agrees. */
 function showScreen(id) {
   view.screen = id;
@@ -1257,7 +1401,7 @@ boot();
 // Exposed for debugging and verification.
 globalThis.kingdom = {
   get state() { return state; },
-  save: () => saveToStorage(state),
+  save: () => save(),
   advance: (ticks) => { handleReport(advanceTicks(state, ticks)); markDirty(); },
   reset: () => {
     // Map mode is module state and would otherwise survive into the new game,
@@ -1267,7 +1411,7 @@ globalThis.kingdom = {
     view.screen = 'world';
     state = newGame();
     state.stats.tilesCleared += clearTerritoryFog(state);
-    saveToStorage(state);
+    save();
     centreOn(state.townHalls[0].x, state.townHalls[0].y);
     markDirty();
     wakeLoop();

@@ -17,6 +17,20 @@ import {
 export const SCHEMA_VERSION = 6;
 export const STORAGE_KEY = 'kingdom-sim-v2/save';
 
+/**
+ * The second slot.
+ *
+ * One key held everything, and a kingdom is months of somebody's evenings. Two
+ * things can take it: a write that runs out of quota part way through, and a
+ * migration that goes wrong on a save this build has never seen. The backup is
+ * refreshed at most once a day — old enough to predate a bad migration, recent
+ * enough to be worth having — and always immediately before a migration runs.
+ *
+ * Two copies of a sub-200KB save is a rounding error against a 5MB budget.
+ */
+export const BACKUP_KEY = 'kingdom-sim-v2/save.backup';
+export const BACKUP_EVERY_MS = 24 * 60 * 60 * 1000;
+
 export function newGame(seed = Math.floor(Math.random() * 0xffffffff), options = {}) {
   const now = options.now ?? Date.now();
   const centre = worldCentre();
@@ -267,6 +281,18 @@ export function deserialize(json) {
   return migrate(parsed);
 }
 
+/** A one-line description of a save, for asking "replace this with that?". */
+export function describeSave(state) {
+  return {
+    residents: state.residents?.length ?? 0,
+    towns: state.townHalls?.length ?? 0,
+    tiles: state.world?.clearedCount ?? 0,
+    studies: state.research?.completed?.length ?? 0,
+    savedAt: state.lastSaveTime ?? null,
+    schemaVersion: state.schemaVersion ?? null,
+  };
+}
+
 /** Each version bump adds a step here; saves walk forward one version at a time. */
 export function migrate(save) {
   const state = save;
@@ -366,8 +392,29 @@ function hasStorage() {
   }
 }
 
+/**
+ * Copy the current save aside, if the one we have is old enough to be worth
+ * replacing. Never throws: a backup that fails must not stop the real save.
+ */
+function refreshBackup(now) {
+  try {
+    const current = globalThis.localStorage.getItem(STORAGE_KEY);
+    if (!current) return;
+
+    const existing = globalThis.localStorage.getItem(BACKUP_KEY);
+    if (existing) {
+      const at = JSON.parse(existing)?.lastSaveTime ?? 0;
+      if (now - at < BACKUP_EVERY_MS) return;
+    }
+    globalThis.localStorage.setItem(BACKUP_KEY, current);
+  } catch {
+    /* no room for a backup, or unreadable: the live save still matters more */
+  }
+}
+
 export function saveToStorage(state, now = Date.now()) {
   if (!hasStorage()) return false;
+  refreshBackup(now);
   try {
     globalThis.localStorage.setItem(STORAGE_KEY, serialize(state, now));
     return true;
@@ -376,14 +423,61 @@ export function saveToStorage(state, now = Date.now()) {
   }
 }
 
+/**
+ * Read the save, falling back to the backup if the main one cannot be read.
+ *
+ * @returns {object|null} the state, with `restoredFromBackup` set on it if the
+ *   main slot failed. The caller is expected to TELL the player that happened:
+ *   silently handing back an older kingdom would be its own kind of loss.
+ */
 export function loadFromStorage() {
   if (!hasStorage()) return null;
+
   const json = globalThis.localStorage.getItem(STORAGE_KEY);
-  if (!json) return null;
-  return deserialize(json);
+  if (json) {
+    try {
+      // Before a migration touches anything, keep a copy of what we were
+      // given. A migration bug is exactly the case the backup exists for, and
+      // by the time it shows itself the original is long overwritten.
+      const version = JSON.parse(json)?.schemaVersion;
+      if (typeof version === 'number' && version < SCHEMA_VERSION) {
+        try {
+          globalThis.localStorage.setItem(BACKUP_KEY, json);
+        } catch { /* nothing we can do, and not a reason to refuse to load */ }
+      }
+      return deserialize(json);
+    } catch (err) {
+      console.warn('The save could not be read; trying the backup.', err);
+    }
+  }
+
+  const backup = globalThis.localStorage.getItem(BACKUP_KEY);
+  if (!backup) return null;
+
+  const state = deserialize(backup);
+  state.restoredFromBackup = true;
+  return state;
 }
 
 export function clearStorage() {
   if (!hasStorage()) return;
   globalThis.localStorage.removeItem(STORAGE_KEY);
+  globalThis.localStorage.removeItem(BACKUP_KEY);
+}
+
+/**
+ * Ask the browser not to evict us.
+ *
+ * Safari clears storage for sites you have not opened in seven days, which for
+ * a game whose whole premise is "come back later" is pointed. Installing to the
+ * home screen is the real exemption; this helps under storage pressure and
+ * costs nothing to ask for.
+ */
+export async function requestPersistence() {
+  try {
+    if (await globalThis.navigator?.storage?.persisted?.()) return true;
+    return (await globalThis.navigator?.storage?.persist?.()) === true;
+  } catch {
+    return false;
+  }
 }

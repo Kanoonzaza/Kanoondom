@@ -460,6 +460,34 @@ main {
 .btn-primary { background: var(--gold); color: #1a1206; border-color: var(--gold); }
 .btn-danger { color: var(--danger); }
 
+/* The way into Settings: small, out of the way, and always in the same place. */
+.icon-btn {
+  margin-left: auto;
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  color: var(--muted);
+  font-size: 15px;
+  line-height: 1;
+  display: grid;
+  place-items: center;
+  flex: none;
+}
+
+.import-box {
+  width: 100%;
+  margin: 6px 0;
+  padding: 8px;
+  border-radius: var(--radius);
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  color: var(--ink);
+  font: 12px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace;
+  resize: vertical;
+}
+
 /* ------------------------------------------------- Placement confirm ---- */
 
 /* Sits above the tab bar while a building is being positioned. A phone has no
