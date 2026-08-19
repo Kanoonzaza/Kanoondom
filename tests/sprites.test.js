@@ -29,6 +29,7 @@ import { MONSTERS } from '../src/content/monsters.js';
 import { townsfolkAt, isNight } from '../src/ui/townsfolk.js';
 import { newGame } from '../src/state.js';
 import { makeResident } from '../src/sim/residents.js';
+import { FURNISHINGS, furnishedIds } from '../src/content/art/rooms-art.js';
 
 test('every terrain template is a well-formed grid', () => {
   const templates = terrainTemplates();
@@ -343,5 +344,47 @@ test('the signs that tell buildings apart are big enough to read', () => {
   assert.notDeepEqual(
     smithy, stable,
     'two buildings of the same size and scheme must not draw identically'
+  );
+});
+
+// ---------------------------------------------------------------------------
+// Rooms
+// ---------------------------------------------------------------------------
+
+test('every building is furnished', () => {
+  // An unfurnished room draws as an empty floor. That is honest rather than
+  // broken, but it means a player cannot tell what the building is by looking
+  // at it — which is the entire reason for drawing interiors at all.
+  const furnished = new Set(furnishedIds());
+  const bare = Object.keys(FACILITIES).filter((id) => !furnished.has(id));
+  assert.deepEqual(bare, [], `nothing inside: ${bare.join(', ')}`);
+});
+
+test('furniture is described in the unit square, so it fits any footprint', () => {
+  // Positions are fractions of the room, which is what lets one description
+  // serve a 2x2 cottage and a 4x3 manor. A value outside 0..1 would hang the
+  // furniture out through the wall.
+  for (const [id, pieces] of Object.entries(FURNISHINGS)) {
+    for (const piece of pieces) {
+      assert.ok(piece.x >= 0 && piece.x <= 1, `${id}: x of ${piece.x} is outside the room`);
+      assert.ok(piece.y >= 0 && piece.y <= 1, `${id}: y of ${piece.y} is outside the room`);
+      assert.ok(
+        piece.x + piece.w <= 1.001 && piece.y + piece.h <= 1.001,
+        `${id}: a piece runs out through the wall`
+      );
+      assert.ok(piece.w > 0 && piece.h > 0, `${id}: a piece with no size`);
+      assert.match(piece.colour, /^#[0-9a-f]{6}$/i, `${id}: bad colour ${piece.colour}`);
+    }
+  }
+});
+
+test('a home has a bed in it and a field does not', () => {
+  // The point of the whole exercise: what is in the room tells you what it is.
+  const bedLike = (piece) => piece.tall < 0.4 && piece.w > 0.25;
+  assert.ok(FURNISHINGS.plot_s.some(bedLike), 'somebody has to sleep somewhere');
+  assert.ok(FURNISHINGS.plot_xl.length > FURNISHINGS.plot_s.length, 'a manor holds more');
+  assert.ok(
+    FURNISHINGS.field.every((piece) => piece.tall <= 0.2),
+    'a field is rows of low crops, not furniture'
   );
 });

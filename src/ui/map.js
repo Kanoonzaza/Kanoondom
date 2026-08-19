@@ -21,6 +21,7 @@ import {
 import { peopleTemplates } from '../content/art/people-art.js';
 import { monsterTemplates } from '../content/art/monsters-art.js';
 import { townsfolkAt, sleepingHouses } from './townsfolk.js';
+import { drawRoom } from './rooms.js';
 import { isSheetOpen } from './panels.js';
 import { dayPeriod, isFullMoon } from '../state.js';
 import {
@@ -461,7 +462,7 @@ export function drawMap(canvas, state) {
 
     standing.push({
       depth: depthOf(ox + def.size.w - 1, oy + def.size.h - 1),
-      draw: () => drawFacility(ctx, project, state, facility, def, ox, oy, tw, th),
+      draw: () => drawRoom(ctx, project, facility, def, ox, oy, camera.zoom),
     });
   }
 
