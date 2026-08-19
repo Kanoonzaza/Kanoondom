@@ -2,7 +2,7 @@
 // Run `npm run precache` after changing anything the app loads.
 // tests/pwa.test.js fails if this has drifted from what is on disk.
 
-const VERSION = 'ks-ab645d1cc78d';
+const VERSION = 'ks-c9702565a56a';
 const ASSETS = [
   './',
   './icons/apple-touch-icon.png',
@@ -47,6 +47,7 @@ const ASSETS = [
   './src/sim/tick.js',
   './src/sim/world.js',
   './src/state.js',
+  './src/ui/decor.js',
   './src/ui/dom.js',
   './src/ui/eggs.js',
   './src/ui/forge.js',

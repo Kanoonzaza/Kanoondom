@@ -171,7 +171,7 @@ function quad(ctx, a, b, c, d) {
  * all that is legible at this size. The top face is what a player reads, so it
  * takes the lighter colour.
  */
-function box(ctx, project, tx, ty, w, h, tall, colour, topColour) {
+export function box(ctx, project, tx, ty, w, h, tall, colour, topColour) {
   const base = {
     top: project(tx, ty),
     right: project(tx + w, ty),

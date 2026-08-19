@@ -30,6 +30,8 @@ import { townsfolkAt, isNight } from '../src/ui/townsfolk.js';
 import { newGame } from '../src/state.js';
 import { makeResident } from '../src/sim/residents.js';
 import { FURNISHINGS, furnishedIds } from '../src/content/art/rooms-art.js';
+import { decorAt } from '../src/ui/decor.js';
+import { clearTerritoryFog, isCleared, biomeAt } from '../src/sim/world.js';
 
 test('every terrain template is a well-formed grid', () => {
   const templates = terrainTemplates();
@@ -387,4 +389,50 @@ test('a home has a bed in it and a field does not', () => {
     FURNISHINGS.field.every((piece) => piece.tall <= 0.2),
     'a field is rows of low crops, not furniture'
   );
+});
+
+// ---------------------------------------------------------------------------
+// What grows on the land
+// ---------------------------------------------------------------------------
+
+test('decoration is the same every time you look at it', () => {
+  // Nothing about the scenery is stored, so it has to be reproducible from the
+  // seed alone. If it were not, every repaint would reshuffle the bushes.
+  const state = newGame(77, { now: 0 });
+  clearTerritoryFog(state);
+
+  const once = [];
+  const twice = [];
+  for (let y = 40; y < 56; y++) {
+    for (let x = 40; x < 56; x++) {
+      once.push(decorAt(state, x, y)?.id ?? null);
+      twice.push(decorAt(state, x, y)?.id ?? null);
+    }
+  }
+  assert.deepEqual(once, twice);
+  assert.ok(once.some(Boolean), 'and something actually grows');
+});
+
+test('nothing grows where it would be in the way', () => {
+  const state = newGame(78, { now: 0 });
+  clearTerritoryFog(state);
+
+  // Every tile a building stands on is occupied, and must stay clear.
+  for (const index of Object.keys(state.world.occupied)) {
+    const x = Number(index) % 96;
+    const y = Math.floor(Number(index) / 96);
+    assert.equal(decorAt(state, x, y), null, `something grew on a building at ${x},${y}`);
+  }
+
+  // Nor on water or lava, nor on land nobody has explored.
+  for (let y = 0; y < 96; y += 7) {
+    for (let x = 0; x < 96; x += 7) {
+      const prop = decorAt(state, x, y);
+      if (!prop) continue;
+      assert.ok(isCleared(state, x, y), `something grew in the fog at ${x},${y}`);
+      const biome = biomeAt(state, x, y);
+      assert.ok(biome !== 'sea' && biome !== 'lava', `a ${prop.id} grew on ${biome}`);
+      assert.ok(prop.biomes.includes(biome), `a ${prop.id} does not belong on ${biome}`);
+    }
+  }
 });

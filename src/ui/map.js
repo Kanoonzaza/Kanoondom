@@ -21,7 +21,8 @@ import {
 import { peopleTemplates } from '../content/art/people-art.js';
 import { monsterTemplates } from '../content/art/monsters-art.js';
 import { townsfolkAt, sleepingHouses } from './townsfolk.js';
-import { drawRoom } from './rooms.js';
+import { drawRoom, box } from './rooms.js';
+import { decorAt, decorOffset } from './decor.js';
 import { isSheetOpen } from './panels.js';
 import { dayPeriod, isFullMoon } from '../state.js';
 import {
@@ -464,6 +465,26 @@ export function drawMap(canvas, state) {
       depth: depthOf(ox + def.size.w - 1, oy + def.size.h - 1),
       draw: () => drawRoom(ctx, project, facility, def, ox, oy, camera.zoom),
     });
+  }
+
+  // Bushes, trees, crates: whatever the land has grown or somebody left out.
+  if (camera.zoom >= 5) {
+    for (let ty = firstY; ty <= lastY; ty++) {
+      for (let tx = firstX; tx <= lastX; tx++) {
+        const prop = decorAt(state, tx, ty);
+        if (!prop) continue;
+        const jitter = decorOffset(state, tx, ty);
+        const px = tx + jitter.dx;
+        const py = ty + jitter.dy;
+        standing.push({
+          depth: depthOf(tx, ty),
+          draw: () => box(
+            ctx, project, px, py, prop.size, prop.size,
+            camera.zoom * prop.tall, prop.colour, prop.top
+          ),
+        });
+      }
+    }
   }
 
   if (camera.zoom >= FOLK_MIN_ZOOM) {
