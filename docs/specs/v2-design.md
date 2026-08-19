@@ -454,8 +454,8 @@ GitHub Pages subpath.
 ## 15. How it is drawn
 
 The map is **2:1 isometric**. The whole projection is four functions in
- — tile to screen, screen to tile, what is visible, and what draws in
-front of what — and the simulation knows nothing about any of it.
+`src/ui/iso.js` — tile to screen, screen to tile, what is visible, and what
+draws in front of what — and the simulation knows nothing about any of it.
 
 **The ground** is diamonds at 32x16. The textures are authored as ordinary
 16x16 rectangles and masked into the diamond shape, with the two upper edges
