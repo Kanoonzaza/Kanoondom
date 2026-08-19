@@ -468,7 +468,11 @@ export function drawMap(canvas, state) {
   }
 
   // Bushes, trees, crates: whatever the land has grown or somebody left out.
-  if (camera.zoom >= 5) {
+  //
+  // Gated at the same zoom as the people. Pulled further out than this the
+  // props are a pixel each, and the loop would be walking every tile on screen
+  // — thousands of them — to queue something nobody can see.
+  if (camera.zoom >= FOLK_MIN_ZOOM) {
     for (let ty = firstY; ty <= lastY; ty++) {
       for (let tx = firstX; tx <= lastX; tx++) {
         const prop = decorAt(state, tx, ty);

@@ -12,6 +12,11 @@ Come back after a night and your fields have been working, your scholars have
 finished a study, your gear has learned from the town's trade, and somebody may
 have been born.
 
+Drawn in isometric pixel art — a 2:1 diamond grid, and every building is a room
+you can see into, with its floor and its furniture, rather than a house seen
+from the front. All of it is original artwork authored as ASCII grids in plain
+data files; the game ships no images at all beyond four home-screen icons.
+
 Plain HTML, CSS and ES modules. No framework, no build step, nothing fetched at
 runtime. It installs to a phone's home screen and opens with no signal at all.
 

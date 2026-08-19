@@ -451,7 +451,35 @@ somebody's evenings.
 when the player accepts. Every path relative, because the deploy target is a
 GitHub Pages subpath.
 
-## 15. Deferred
+## 15. How it is drawn
+
+The map is **2:1 isometric**. The whole projection is four functions in
+ — tile to screen, screen to tile, what is visible, and what draws in
+front of what — and the simulation knows nothing about any of it.
+
+**The ground** is diamonds at 32x16. The textures are authored as ordinary
+16x16 rectangles and masked into the diamond shape, with the two upper edges
+lightened and the two lower ones darkened; that bevel is what makes isometric
+ground read as a surface rather than as wallpaper. The whole world is painted
+into one sheet, so the ground costs ONE drawImage however far the camera pulls
+back. Water and lava are drawn live on top instead of doubling the sheet.
+
+**Buildings are rooms.** Two low walls along the far edges, the near corner
+open, and the floor and furniture visible — as though the roof had been lifted
+off. Furniture is described in a unit square, so one line places a bed in a 2x2
+cottage and a 4x3 manor alike. This is the single biggest reason the map reads
+as a town being managed rather than a row of cottages.
+
+**Everything that stands up is depth-sorted** before it is drawn, because in
+isometric a thing further down the screen is nearer the viewer.
+
+**People, monsters and scenery are all pure functions** of the seed, the clock
+and a position. None of it is stored, none of it is saved, and a catch-up
+cannot desynchronise it because there is nothing to synchronise.
+
+Measured: 1.2ms a repaint zoomed out, 2.9ms in normal play, 1.2ms zoomed in.
+
+## 16. Deferred
 
 Underground Arena · Monster Fusion Lab · Trophy Room · Collector · Kairo Room ·
 endgame/New Game+ · anything requiring a server.
